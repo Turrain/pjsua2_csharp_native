@@ -34,12 +34,25 @@ namespace PjSua2.Lx
         public override void onCallState(OnCallStateParam prm)
         {
             base.onCallState(prm);
+           // var ci = getInfo();
+
         }
 
 
         public override void onCallMediaState(OnCallMediaStateParam prm)
         {
-            base.onCallMediaState(prm);
+             var ci = getInfo();
+            for (var i = 0; i< ci.media.Count; i++){
+                if((ci.media[i].status == pjsua_call_media_status.PJSUA_CALL_MEDIA_ACTIVE) && (ci.media[i].type == pjmedia_type.PJMEDIA_TYPE_AUDIO )){
+                    var aud_med = (AudioMedia)getMedia((uint)i);
+                    var aud_dev_man = Endpoint.instance().audDevManager();
+                    var port_info = aud_med.getPortInfo();
+                    var format = port_info.format;
+                    
+                    aud_med.startTransmit(_mediaPort);
+                    _mediaPort.startTransmit(aud_med);
+                }
+            }
         }
 
         public Agent GetAgent()
