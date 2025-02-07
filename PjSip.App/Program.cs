@@ -1,4 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
+﻿
 using PjSua2.Native;
 
 class Program
@@ -7,21 +7,19 @@ class Program
     {
         try
         {
-            using (var pjsip = new PjSipManager())
-            {
-                // Initialize PJSIP
-                pjsip.Initialize();
+            using var pjsip = new PjSipManager();
+            // Initialize PJSIP
+            pjsip.Initialize();
 
-                // Create SIP account
-                pjsip.CreateAccount(
-                    username: "your_username",
-                    password: "your_password",
-                    domain: "sip.example.com"
-                );
+            // Create SIP account
+            pjsip.CreateAccount(
+                username: "your_username",
+                password: "your_password",
+                domain: "sip.example.com"
+            );
 
-                Console.WriteLine("PJSIP initialized successfully. Press any key to exit.");
-                Console.ReadKey();
-            }
+            Console.WriteLine("PJSIP initialized successfully. Press any key to exit.");
+            Console.ReadKey();
         }
         catch (Exception ex)
         {

@@ -4,6 +4,8 @@ using PjSua2.Native.pjsua2;
 namespace PjSua2.Native
 {
 
+    
+
     public class PjSipManager : IDisposable
     {
 
