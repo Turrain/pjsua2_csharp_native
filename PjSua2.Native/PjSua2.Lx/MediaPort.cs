@@ -79,10 +79,10 @@ namespace PjSua2.Lx
             }
             
 
-            
+       
             ByteVector bv = [.. tempBuffer];
             frame.buf = bv;
-          //  Console.WriteLine("First few bytes: " + string.Join(", ", bv.Take(bv.Count)));
+            //Console.WriteLine("First few bytes: " + string.Join(", ", bv.Take(bv.Count)));
             frame.size = (uint)requiredBytes;
         }
 
@@ -95,6 +95,8 @@ namespace PjSua2.Lx
             {
                 return;
             }
+           // Console.WriteLine($"{string.Join(",",frame.buf.ToArray().Take(frame.buf.ToArray().Length))}");
+
             _vad.ProcessFrame(frame);
         }
 

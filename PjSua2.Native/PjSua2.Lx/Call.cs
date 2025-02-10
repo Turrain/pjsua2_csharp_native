@@ -7,21 +7,21 @@ namespace PjSua2.Lx
         static int port_index = 0;
         public Call(Account acc, int callId = -1) : base(acc, callId)
         {
-     
+            this._account = acc;
             _mediaPort ??= new MediaPort();
             _mediaPort._vad.VoiceSegmentDetected += delegate (ReadOnlyMemory<MediaFrame> voiceFrames) {
                 Console.WriteLine("SEGMENT " + voiceFrames.Length);
                //    _mediaPort._vad.SaveSegmentToWav(voiceFrames.Span, $"SEGMENT_{voiceFrames.Length}.wav");
-                _account._agent.Listen(voiceFrames);
+                var data = _mediaPort._vad.ExtractBytesFromFrames(voiceFrames.Span);
+                _account._agent.Listen(data);
+            };
+            _account._agent.auralisClient.OnBinaryMessage += data => {
+                _mediaPort.AddToQueue(data);
             };
             _mediaPort._vad.VoiceFrameDetected += delegate (MediaFrame frame, bool isVoiced) {
-                Console.WriteLine("FRAME " + isVoiced);
+          
             };
-            // _mediaPort._vad.VoiceSegmentDetected += delegate (List<MediaFrame> frames)
-            // {
-            //     Console.WriteLine($"SEGMENT {frames.Count}");
-            //     _mediaPort._vad.SaveSegmentToWavFromData($"segment_{frames.Count}.wav");
-            // };
+        
             if (_mediaPort.getPortId() == pjsua2.INVALID_ID)
             {
                 var mediaFormatAudio = new MediaFormatAudio();
@@ -75,9 +75,9 @@ namespace PjSua2.Lx
                     if (CallDirection == Direction.Incoming)
                     {
                         Console.WriteLine("Incoming call from " + ci.remoteUri);
-                        
+                        _ = _account._agent.Speak("Hello from agent");
                     //    mic.startTransmit(_mediaPort);
-                       MediaPortTest.RunTest(_mediaPort);
+                     //  MediaPortTest.RunTest(_mediaPort);
 
                         //  var adplayer = new AudioMediaPlayer();
                         // string filePath = "test.wav";

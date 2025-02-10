@@ -4,6 +4,14 @@
       "dockerfile": "Dockerfile",
       "context": ".."
     },
+    "runArgs": [
+      "--userns=keep-id"
+    ],
+    "containerUser": "vscode",
+    "containerEnv": {
+    "HOME": "/home/vscode"
+  },
+    "updateRemoteUserUID": true,
     "workspaceFolder": "/workspace",
     "mounts": [
       "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"

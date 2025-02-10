@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using PjSua2.Lx.AudioStream;
 using PjSua2.Native;
 namespace PjSua2.Lx
@@ -31,7 +32,7 @@ namespace PjSua2.Lx
         {
             auralisClient.OnBinaryMessage += data =>
             {
-                Console.WriteLine("Auralis Received Binary: " + BitConverter.ToString(data));
+           //     Console.WriteLine("Auralis Received Binary: " + BitConverter.ToString(data));
             };
             auralisClient.OnError += ex =>
             {
@@ -47,12 +48,37 @@ namespace PjSua2.Lx
             {
                 Console.WriteLine("Whisper Error: " + ex.Message);
             };
+
+            auralisClient.ConnectAsync();
+            whisperClient.ConnectAsync();
         }
 
-        public void Listen(ReadOnlyMemory<Native.pjsua2.MediaFrame> voiceFrames) {
-      
-         }
-        public void Think(string input) { }
-        public void Speak(string input) { }
+        public void Listen(byte[] framesData)
+        {
+            whisperClient.SendAudioAsync(framesData);
+        }
+        public string Think(string input) { 
+            return "Text generated";
+        }
+        public async Task Speak(string input)
+        {
+            var json = new
+            {
+                input = input,
+                voice = "default",
+                stream = true,
+                temperature = 0.5
+            };
+            Console.WriteLine("TEST");
+            await auralisClient.SendCommandAsync(json);
+        }
     }
 }
+
+//     var input = new
+//     {
+//         input = "Hello, world!",
+//         voice = "default",
+//         stream = true,
+//         temperature = 0.5
+//     };

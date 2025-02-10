@@ -58,6 +58,7 @@ namespace PjSua2.Lx.AudioStream
 
             byte[] encoded = Encoding.UTF8.GetBytes(message);
             var buffer = new ArraySegment<byte>(encoded);
+            
             await _webSocket.SendAsync(buffer, WebSocketMessageType.Text, endOfMessage: true, cancellationToken: cancellationToken)
                             .ConfigureAwait(false);
         }

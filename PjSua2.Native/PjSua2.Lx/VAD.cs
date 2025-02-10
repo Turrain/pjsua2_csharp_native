@@ -12,7 +12,7 @@ namespace PjSua2.Lx
 {
     public sealed class VoiceActivityDetector : IDisposable
     {
-        
+
         private readonly struct VadFrame
         {
             public readonly MediaFrame Frame;
@@ -91,7 +91,7 @@ namespace PjSua2.Lx
         private const int MaxVoiceBufferSize = 1000;
         private static readonly int NumPaddingFrames = PaddingMs / FrameDurationMs;
 
-        public VoiceActivityDetector(WebRtcVad.VadMode mode = WebRtcVad.VadMode.Aggressive)
+        public VoiceActivityDetector(WebRtcVad.VadMode mode = WebRtcVad.VadMode.Normal)
         {
             _vad = new WebRtcVad.WebRtcVad();
             _vad.SetMode(mode);
@@ -284,7 +284,39 @@ namespace PjSua2.Lx
                 pcmData[i + 1] = newSampleBytes[1];
             }
         }
+        public byte[] ExtractBytesFromFrames(ReadOnlySpan<MediaFrame> frames)
+        {
+            if (frames.IsEmpty)
+                throw new ArgumentException("No frames provided", nameof(frames));
 
+            // Assume each frame is 320 bytes (20ms at 8kHz with 16-bit samples).
+            int totalBytes = frames.Length * 320;
+            byte[] rentedBuffer = _arrayPool.Rent(totalBytes);
+            int offset = 0;
+
+            try
+            {
+                foreach (var frame in frames)
+                {
+                    // Obtain a copy of the frame's buffer.
+                    ReadOnlySpan<byte> frameData = frame.buf.ToArray();
+                    if (frameData.Length > 0)
+                    {
+                        frameData.CopyTo(rentedBuffer.AsSpan(offset));
+                        offset += frameData.Length;
+                    }
+                }
+
+                // Copy only the valid bytes to a new array.
+                byte[] extractedBytes = new byte[offset];
+                Array.Copy(rentedBuffer, extractedBytes, offset);
+                return extractedBytes;
+            }
+            finally
+            {
+                _arrayPool.Return(rentedBuffer);
+            }
+        }
         /// <summary>
         /// Creates a deep copy of a MediaFrame by copying its valid data.
         /// </summary>

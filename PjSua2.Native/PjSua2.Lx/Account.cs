@@ -9,7 +9,7 @@ public class Account : Native.pjsua2.Account
     public TaskCompletionSource<TaskStatus> RegTcs { get; set; }
 
     public string AgentId { get; set; }
-    public Agent _agent;
+    public Agent _agent = new();
     private AgentManager _agentManager = AgentManager.Instance;
 
    public Account(TaskCompletionSource<TaskStatus> tcs)
