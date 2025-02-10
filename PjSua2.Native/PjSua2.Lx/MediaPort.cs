@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using PjSua2.Native;
 using PjSua2.Native.pjsua2;
@@ -8,9 +9,13 @@ namespace PjSua2.Lx
 
     public class MediaPort : Native.pjsua2.AudioMediaPort
     {
-        private VAD _vad = new VAD();
+        public VoiceActivityDetector _vad = new();
         private Queue<byte[]> _audioQueue = new Queue<byte[]>();
-        private int _frameSize = 320;
+        // For 8kHz audio with 20ms frames:
+        // 8000 samples/sec * 0.02 sec = 160 samples
+        // 160 samples * 2 bytes/sample = 320 bytes
+        private const int FRAME_SAMPLES = 160;
+        private const int FRAME_BYTES = 160 * 2;
         private byte[] _pcmBuffer = null;
         private int _pcmBufferIndex = 0;
 
@@ -28,11 +33,10 @@ namespace PjSua2.Lx
 
         public override void onFrameRequested(MediaFrame frame)
         {
-
-            int requiredBytes = _frameSize;
+            frame.type = pjmedia_frame_type.PJMEDIA_FRAME_TYPE_AUDIO;
+            int requiredBytes = FRAME_BYTES; // 320 bytes for 20ms of 8kHz, 16-bit audio.
             byte[] tempBuffer = new byte[requiredBytes];
             int bytesCopied = 0;
-
 
             lock (_audioQueue)
             {
@@ -73,20 +77,42 @@ namespace PjSua2.Lx
                     tempBuffer[i] = 0;
                 }
             }
+            
 
-            // Assign the filled (or padded) buffer to the frame.
-            frame.buf = [.. tempBuffer];
+            
+            ByteVector bv = [.. tempBuffer];
+            frame.buf = bv;
+          //  Console.WriteLine("First few bytes: " + string.Join(", ", bv.Take(bv.Count)));
             frame.size = (uint)requiredBytes;
-
-            // Optionally, call the base implementation.
-            base.onFrameRequested(frame);
         }
+
 
 
         public override void onFrameReceived(MediaFrame frame)
         {
-            base.onFrameReceived(frame);
+
+
+            // Ensure we have valid frame data before processing
+            if (frame == null || frame.buf == null || frame.size == 0)
+            {
+                return; // Skip processing invalid frames
+            }
+
+            // Only process frames of the expected size
+
+            // Console.WriteLine($"{frame.buf.ToArray()}");
+
+            // // Convert the buffer to a hexadecimal string representation
+            // StringBuilder hex = new StringBuilder(frame.buf.Count * 2);
+            // foreach (byte b in frame.buf)
+            // {
+            //     hex.AppendFormat("{0:x2} ", b);
+            // }
+            // Console.WriteLine(hex.ToString());
+      
             _vad.ProcessFrame(frame);
+
+
         }
 
         public void ClearQueue()
@@ -99,4 +125,60 @@ namespace PjSua2.Lx
             _pcmBufferIndex = 0;
         }
     }
+
+
+   public static class MediaPortTest
+{
+    private static Timer _audioFeedTimer;
+    private static byte[] _pcmData;
+    private static int _feedPosition = 0;
+
+    public static void RunTest(MediaPort mediaPort)
+    {
+        string filePath = "test.wav";
+        filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filePath);
+        if (!File.Exists(filePath))
+        {
+            Console.WriteLine("WAV file not found: " + filePath);
+            return;
+        }
+
+        try
+        {
+            byte[] wavData = File.ReadAllBytes(filePath);
+            int headerSize = 44;
+            _pcmData = new byte[wavData.Length - headerSize];
+            Array.Copy(wavData, headerSize, _pcmData, 0, _pcmData.Length);
+
+            // Feed data in chunks every 20ms to simulate real-time
+            _audioFeedTimer = new Timer(FeedData, mediaPort, 0, 20);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Exception: " + ex.Message);
+        }
+    }
+
+    private static void FeedData(object state)
+    {
+        MediaPort mediaPort = (MediaPort)state;
+        int chunkSize = 320; // Match FRAME_BYTES
+
+        lock (_pcmData)
+        {
+            if (_feedPosition >= _pcmData.Length)
+            {
+                _feedPosition = 0; // Loop or stop
+            }
+
+            int bytesRemaining = _pcmData.Length - _feedPosition;
+            int bytesToCopy = Math.Min(chunkSize, bytesRemaining);
+            byte[] chunk = new byte[bytesToCopy];
+            Array.Copy(_pcmData, _feedPosition, chunk, 0, bytesToCopy);
+            _feedPosition += bytesToCopy;
+
+            mediaPort.AddToQueue(chunk);
+        }
+    }
+}
 }

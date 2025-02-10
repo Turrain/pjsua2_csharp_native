@@ -2,12 +2,7 @@ using System;
 using PjSua2.Native;
 namespace PjSua2.Lx
 {
-public struct RegistrationStatus
-{
-    public bool Success;
-    public string Message;
-    public int StatusCode;
-}
+
 
 public class AgentManager
 {

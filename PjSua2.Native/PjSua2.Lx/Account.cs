@@ -6,45 +6,48 @@ namespace PjSua2.Lx
 
 public class Account : Native.pjsua2.Account
 {
-    public delegate void OnRegStateDelegate(bool isSuccess, int status);
-    public OnRegStateDelegate RegStateCallback;
+    public TaskCompletionSource<TaskStatus> RegTcs { get; set; }
 
-    private string _agentId;
+    public string AgentId { get; set; }
     private Agent _agent;
     private AgentManager _agentManager = AgentManager.Instance;
 
-    public Account()
-    {
-    }
+   public Account(TaskCompletionSource<TaskStatus> tcs)
+        {
+            RegTcs = tcs;
+        }
 
-    public void SetAgent(string agentId)
-    {
-        _agentId = agentId;
-        _agent = _agentManager.GetAgent(agentId);
-    }
-
-    public Agent GetAgent()
-    {
-        return _agent;
-    }
-
-    public void RegisterRegStateCallback(OnRegStateDelegate callback)
-    {
-        RegStateCallback = callback;
-    }
 
     public override void onRegState(OnRegStateParam prm)
     {
-        var info = getInfo();
-        
-        bool isSuccess = (int)prm.code / 100 == 2;
-        RegStateCallback?.Invoke(isSuccess, (int)prm.code);
+          base.onRegState(prm);
+          
+         bool success = prm.code == pjsip_status_code.PJSIP_SC_OK;
+            TaskStatus status = new TaskStatus
+            {
+                Success = success,
+                Message = success
+                    ? "Registration successful"
+                    : $"Registration failed with code: {prm.code}",
+                StatusCode = (int)prm.code
+            };
+
+            // Ensure the registration result is set only once.
+            if (!RegTcs.Task.IsCompleted)
+            {
+                RegTcs.SetResult(status);
+            }
     }
 
     public override void onIncomingCall(OnIncomingCallParam iprm)
     {
         // Handle incoming call
         base.onIncomingCall(iprm);
+        Call call = new Call(this, iprm.callId);
+        CallOpParam callOpParam = new CallOpParam();
+        callOpParam.statusCode = pjsip_status_code.PJSIP_SC_OK;
+        call.CallDirection = Call.Direction.Incoming;
+        call.answer(callOpParam);
     }
 
     ~Account()
