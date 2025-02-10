@@ -1,37 +1,47 @@
+using System;
+using System.IO;
 using System.Net.WebSockets;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace PjSua2.Lx.AudioStream
 {
-    class AuralisWebsocketClient : WebSocketClient
+    public class AuralisClient : WebSocketClient
     {
-        public AuralisWebsocketClient(string uri) : base(uri)
+        public AuralisClient(string uri) : base(uri) { }
+
+        /// <summary>
+        /// In Auralis, sending JSON is supported using the base implementation.
+        /// We discourage sending binary data by hiding the base method.
+        /// </summary>
+        public new Task SendBinaryAsync(byte[] data, CancellationToken cancellationToken = default)
         {
-            this.OnTextMessage += HandleTextMessage;
-            this.OnBinaryMessage += HandleBinaryMessage;
-            this.OnError += HandleError;
-            this.OnClosed += HandleClosed;
-        }
-        private void HandleTextMessage(string msg)
-        {
-            // Custom logic for JSON messages.
-            Console.WriteLine("Custom handler received text: " + msg);
-            // You could deserialize JSON here (using e.g. Newtonsoft.Json or System.Text.Json).
+            throw new InvalidOperationException("Auralis client does not support sending binary data. Use SendJsonAsync instead.");
         }
 
-        private void HandleBinaryMessage(byte[] data)
+        /// <summary>
+        /// In Auralis, we expect to receive binary messages.
+        /// Text messages are ignored.
+        /// </summary>
+        protected override Task ProcessReceivedData(MemoryStream ms, WebSocketReceiveResult result)
         {
-            // Custom logic for binary messages.
-            Console.WriteLine("Custom handler received binary data, length: " + data.Length);
+            if (result.MessageType != WebSocketMessageType.Binary)
+            {
+                // Ignore non-binary messages.
+                return Task.CompletedTask;
+            }
+
+            byte[] data = ms.ToArray();
+            RaiseOnBinaryMessage(data);
+            return Task.CompletedTask;
         }
 
-        private void HandleError(Exception ex)
+        /// <summary>
+        /// Optionally, provide a convenience method for sending commands as JSON.
+        /// </summary>
+        public Task SendCommandAsync<T>(T obj, CancellationToken cancellationToken = default)
         {
-            Console.WriteLine("Custom handler error: " + ex.Message);
-        }
-
-        private void HandleClosed(WebSocketCloseStatus? status, string description)
-        {
-            Console.WriteLine($"Connection closed: {status}, {description}");
+            return SendJsonAsync(obj, cancellationToken);
         }
     }
 }

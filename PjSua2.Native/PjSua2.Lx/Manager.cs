@@ -1,9 +1,5 @@
-using System;
+
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using PjSua2.Native.pjsua2;
 
 namespace PjSua2.Lx

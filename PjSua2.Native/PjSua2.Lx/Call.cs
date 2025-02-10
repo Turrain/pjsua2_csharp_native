@@ -7,11 +7,12 @@ namespace PjSua2.Lx
         static int port_index = 0;
         public Call(Account acc, int callId = -1) : base(acc, callId)
         {
-
+     
             _mediaPort ??= new MediaPort();
             _mediaPort._vad.VoiceSegmentDetected += delegate (ReadOnlyMemory<MediaFrame> voiceFrames) {
                 Console.WriteLine("SEGMENT " + voiceFrames.Length);
-                   _mediaPort._vad.SaveSegmentToWav(voiceFrames.Span, $"SEGMENT_{voiceFrames.Length}.wav");
+               //    _mediaPort._vad.SaveSegmentToWav(voiceFrames.Span, $"SEGMENT_{voiceFrames.Length}.wav");
+                _account._agent.Listen(voiceFrames);
             };
             _mediaPort._vad.VoiceFrameDetected += delegate (MediaFrame frame, bool isVoiced) {
                 Console.WriteLine("FRAME " + isVoiced);

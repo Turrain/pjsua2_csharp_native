@@ -91,28 +91,11 @@ namespace PjSua2.Lx
         public override void onFrameReceived(MediaFrame frame)
         {
 
-
-            // Ensure we have valid frame data before processing
             if (frame == null || frame.buf == null || frame.size == 0)
             {
-                return; // Skip processing invalid frames
+                return;
             }
-
-            // Only process frames of the expected size
-
-            // Console.WriteLine($"{frame.buf.ToArray()}");
-
-            // // Convert the buffer to a hexadecimal string representation
-            // StringBuilder hex = new StringBuilder(frame.buf.Count * 2);
-            // foreach (byte b in frame.buf)
-            // {
-            //     hex.AppendFormat("{0:x2} ", b);
-            // }
-            // Console.WriteLine(hex.ToString());
-      
             _vad.ProcessFrame(frame);
-
-
         }
 
         public void ClearQueue()

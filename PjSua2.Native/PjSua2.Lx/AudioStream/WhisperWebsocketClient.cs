@@ -1,37 +1,62 @@
+using System;
+using System.IO;
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace PjSua2.Lx.AudioStream
 {
-    class WhisperWebsocketClient : WebSocketClient
+    public class WhisperClient : WebSocketClient
     {
-        public WhisperWebsocketClient(string uri) : base(uri)
+        public WhisperClient(string uri) : base(uri) { }
+
+        /// <summary>
+        /// In Whisper, when sending JSON we encode the JSON string into bytes and send as binary.
+        /// </summary>
+        public override async Task SendJsonAsync<T>(T obj, CancellationToken cancellationToken = default)
         {
-            this.OnTextMessage += HandleTextMessage;
-            this.OnBinaryMessage += HandleBinaryMessage;
-            this.OnError += HandleError;
-            this.OnClosed += HandleClosed;
-        }
-        private void HandleTextMessage(string msg)
-        {
-            // Custom logic for JSON messages.
-            Console.WriteLine("Custom handler received text: " + msg);
-            // You could deserialize JSON here (using e.g. Newtonsoft.Json or System.Text.Json).
+            string json = JsonSerializer.Serialize(obj);
+            byte[] data = Encoding.UTF8.GetBytes(json);
+            await SendBinaryAsync(data, cancellationToken).ConfigureAwait(false);
         }
 
-        private void HandleBinaryMessage(byte[] data)
+        /// <summary>
+        /// In Whisper, we expect to receive JSON messages sent as text. 
+        /// Any non-text messages are ignored.
+        /// </summary>
+        protected override Task ProcessReceivedData(MemoryStream ms, WebSocketReceiveResult result)
         {
-            // Custom logic for binary messages.
-            Console.WriteLine("Custom handler received binary data, length: " + data.Length);
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                // Ignore non-text messages.
+                return Task.CompletedTask;
+            }
+
+            ms.Seek(0, SeekOrigin.Begin);
+            string message = Encoding.UTF8.GetString(ms.ToArray());
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(message))
+                {
+                    JsonElement clonedElement = doc.RootElement.Clone();
+                    RaiseOnJsonMessage(clonedElement);
+                }
+            }
+            catch (JsonException ex)
+            {
+                RaiseOnError(ex);
+            }
+            return Task.CompletedTask;
         }
 
-        private void HandleError(Exception ex)
+        /// <summary>
+        /// Optionally, provide a convenience method for sending audio (raw binary) data.
+        /// </summary>
+        public Task SendAudioAsync(byte[] data, CancellationToken cancellationToken = default)
         {
-            Console.WriteLine("Custom handler error: " + ex.Message);
-        }
-
-        private void HandleClosed(WebSocketCloseStatus? status, string description)
-        {
-            Console.WriteLine($"Connection closed: {status}, {description}");
+            return SendBinaryAsync(data, cancellationToken);
         }
     }
 }

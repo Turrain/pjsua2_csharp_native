@@ -1,9 +1,6 @@
-using System;
+
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -261,6 +258,30 @@ namespace PjSua2.Lx
             _isSpeechActive = false;
             _ringBuffer.Clear();
             SilenceDetected?.Invoke();
+        }
+
+        public static void ChangeVolume(byte[] pcmData, float volumeFactor)
+        {
+            // Check that the array length is even (since each sample is 2 bytes)
+            if (pcmData.Length % 2 != 0)
+                throw new ArgumentException("PCM data length must be even.", nameof(pcmData));
+
+            // Loop over the data, processing 2 bytes at a time
+            for (int i = 0; i < pcmData.Length; i += 2)
+            {
+                // Convert 2 bytes to a short (16-bit signed integer)
+                short sample = BitConverter.ToInt16(pcmData, i);
+                int adjustedSample = (int)(sample * volumeFactor);
+                if (adjustedSample > short.MaxValue)
+                    adjustedSample = short.MaxValue;
+                else if (adjustedSample < short.MinValue)
+                    adjustedSample = short.MinValue;
+
+                // Convert back to 2 bytes
+                byte[] newSampleBytes = BitConverter.GetBytes((short)adjustedSample);
+                pcmData[i] = newSampleBytes[0];
+                pcmData[i + 1] = newSampleBytes[1];
+            }
         }
 
         /// <summary>
