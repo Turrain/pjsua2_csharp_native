@@ -37,7 +37,7 @@ class Program
 
             var input = new
             {
-                input = "test",
+                input = "Hello, world!",
                 voice = "default",
                 stream = true,
                 temperature = 0.5

@@ -12,6 +12,7 @@ namespace PjSua2.Lx
 {
     public sealed class VoiceActivityDetector : IDisposable
     {
+        
         private readonly struct VadFrame
         {
             public readonly MediaFrame Frame;

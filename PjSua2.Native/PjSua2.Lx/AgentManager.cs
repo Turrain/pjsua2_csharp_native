@@ -50,7 +50,7 @@ namespace PjSua2.Lx
         }
 
         public void Listen(ReadOnlyMemory<Native.pjsua2.MediaFrame> voiceFrames) {
-            
+      
          }
         public void Think(string input) { }
         public void Speak(string input) { }

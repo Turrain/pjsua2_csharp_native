@@ -1,0 +1,26 @@
+{
+    "name": "Ubuntu 24.04 + .NET 9 & C++ Dev Container",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "workspaceFolder": "/workspace",
+    "mounts": [
+      "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+    ],
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ms-dotnettools.csdevkit",
+          "ms-dotnettools.csharp",    // C# support
+          "ms-vscode.cpptools",       // C/C++ support
+          "ms-vscode.makefile-tools"  // Optional: Makefile support
+        ],
+        "settings": {
+          "terminal.integrated.shell.linux": "/bin/bash"
+        }
+      }
+    }
+   
+   
+  }
