@@ -14,6 +14,7 @@ namespace PjSua2.Lx
                //    _mediaPort._vad.SaveSegmentToWav(voiceFrames.Span, $"SEGMENT_{voiceFrames.Length}.wav");
                 var data = _mediaPort._vad.ExtractBytesFromFrames(voiceFrames.Span);
                 _account._agent.Listen(data);
+                _mediaPort.ClearQueue();
             };
             _account._agent.auralisClient.OnBinaryMessage += data => {
                 _mediaPort.AddToQueue(data);

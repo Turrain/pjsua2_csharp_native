@@ -84,14 +84,15 @@ namespace PjSua2.Lx
         private readonly object _lock = new();
         private bool _isSpeechActive;
 
-        private const int PaddingMs = 60;
+        private const int PaddingMs = 160;
         private const int FrameDurationMs = 20;
         private const double SpeechStartRatio = 0.66;
         private const double SpeechEndRatio = 0.2;
         private const int MaxVoiceBufferSize = 1000;
+          private const float NoiseThreshold = 500.0f;
         private static readonly int NumPaddingFrames = PaddingMs / FrameDurationMs;
 
-        public VoiceActivityDetector(WebRtcVad.VadMode mode = WebRtcVad.VadMode.Normal)
+        public VoiceActivityDetector(WebRtcVad.VadMode mode = WebRtcVad.VadMode.VeryAggressive)
         {
             _vad = new WebRtcVad.WebRtcVad();
             _vad.SetMode(mode);
@@ -118,6 +119,7 @@ namespace PjSua2.Lx
                 // Create a temporary copy of the frame's data for VAD processing.
                 byte[] frameData = frame.buf.ToArray();
                 Span<byte> audioData = frameData;
+                    PreprocessAudio(audioData);
                 bool isVoiced = _vad.Process(VadSampleRate.Rate8KHz, audioData.ToArray()) == 1;
 
                 if (!_isSpeechActive)
@@ -386,8 +388,76 @@ namespace PjSua2.Lx
                 writer.Write(buffer);
             }
         }
+ /// <summary>
+        /// Preprocesses the raw PCM audio data to improve VAD performance.
+        /// If the RMS energy is below a set threshold, the data is zeroed out.
+        /// Otherwise, a high-pass filter is applied to reduce low-frequency noise.
+        /// </summary>
+        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
+        private static void PreprocessAudio(Span<byte> audioData)
+        {
+            float rms = ComputeRms(audioData);
+            if (rms < NoiseThreshold)
+            {
+                // Low energy: treat the frame as silence.
+                audioData.Clear();
+            }
+            else
+            {
+                // Apply a high-pass filter to suppress low-frequency background noise.
+                ApplyHighPassFilter(audioData);
+            }
+        }
 
-        public void Dispose()
+        /// <summary>
+        /// Computes the root-mean-square (RMS) value of the PCM audio data.
+        /// </summary>
+        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
+        /// <returns>RMS energy as a float.</returns>
+        private static float ComputeRms(Span<byte> audioData)
+        {
+            // Interpret the bytes as 16-bit signed samples.
+            Span<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
+            double sumSquares = 0;
+            foreach (short sample in samples)
+            {
+                sumSquares += sample * sample;
+            }
+            return (float)Math.Sqrt(sumSquares / samples.Length);
+        }
+
+        /// <summary>
+        /// Applies a simple first-order high-pass filter to the PCM data.
+        /// This helps remove low-frequency noise such as hum or background rumbles.
+        /// </summary>
+        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
+        private static void ApplyHighPassFilter(Span<byte> audioData)
+        {
+            // Interpret the bytes as 16-bit signed samples.
+            Span<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
+            if (samples.Length == 0)
+                return;
+
+            // High-pass filter parameters.
+            const float cutoffFrequency = 80.0f; // in Hz
+            const int sampleRate = 8000;
+            float RC = 1.0f / (2 * MathF.PI * cutoffFrequency);
+            float dt = 1.0f / sampleRate;
+            float alpha = RC / (RC + dt);
+
+            // Use a simple first-order high-pass filter:
+            // y[n] = alpha * (y[n-1] + x[n] - x[n-1])
+            short previousInput = samples[0];
+            float previousOutput = samples[0];
+            for (int i = 1; i < samples.Length; i++)
+            {
+                short currentInput = samples[i];
+                float currentOutput = alpha * (previousOutput + currentInput - previousInput);
+                samples[i] = (short)currentOutput;
+                previousOutput = currentOutput;
+                previousInput = currentInput;
+            }
+        }        public void Dispose()
         {
             _vad?.Dispose();
             GC.SuppressFinalize(this);

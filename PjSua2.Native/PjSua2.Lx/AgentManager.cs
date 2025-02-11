@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using PjSua2.Lx.AudioStream;
+using PjSua2.Lx.GenStream;
 using PjSua2.Native;
 namespace PjSua2.Lx
 {
@@ -24,6 +25,7 @@ namespace PjSua2.Lx
     {
         public AuralisClient auralisClient { get; set; } = new AuralisClient("ws://37.151.89.206:8766");
         public WhisperClient whisperClient { get; set; } = new WhisperClient("ws://37.151.89.206:8765");
+        public OllamaStreamingService ollamaStreamingService { get; set; } = new();
         public List<string> history { get; set; } = new();
 
 
@@ -43,10 +45,14 @@ namespace PjSua2.Lx
             {
                 Console.WriteLine("Whisper Received JSON: " + json.ToString());
                 Console.WriteLine(json.GetProperty("text"));
+                Think(json.GetProperty("text").GetString());
             };
             whisperClient.OnError += ex =>
             {
                 Console.WriteLine("Whisper Error: " + ex.Message);
+            };
+            ollamaStreamingService.SentenceReady += sentenceReady => {
+                Speak(sentenceReady);
             };
 
             auralisClient.ConnectAsync();
@@ -57,8 +63,8 @@ namespace PjSua2.Lx
         {
             whisperClient.SendAudioAsync(framesData);
         }
-        public string Think(string input) { 
-            return "Text generated";
+        public void Think(string input) { 
+            ollamaStreamingService.StartStreamingAsync(input);
         }
         public async Task Speak(string input)
         {
@@ -67,9 +73,9 @@ namespace PjSua2.Lx
                 input = input,
                 voice = "default",
                 stream = true,
-                temperature = 0.5
+                temperature = 0.9
             };
-            Console.WriteLine("TEST");
+          
             await auralisClient.SendCommandAsync(json);
         }
     }
