@@ -1,4 +1,5 @@
 using System;
+using PjSua2.Lx.Configuration;
 using PjSua2.Native;
 using PjSua2.Native.pjsua2;
 namespace PjSua2.Lx
@@ -9,8 +10,20 @@ public class Account : Native.pjsua2.Account
     public TaskCompletionSource<TaskStatus> RegTcs { get; set; }
 
     public string AgentId { get; set; }
-    public Agent _agent = new();
-    private AgentManager _agentManager = AgentManager.Instance;
+    public Agent _agent = new(new AgentConfiguration
+            {
+                AgentId = "default",
+                Auralis = new WebSocketConfig { Endpoint = "ws://37.151.89.206:8766" },
+                Whisper = new WebSocketConfig { Endpoint = "ws://37.151.89.206:8765" },
+                Ollama = new OllamaConfig 
+                { 
+                    Endpoint = "https://models.aitomaton.online/api/generate",
+                    Model = "phi4",
+                    Temperature = 0.9F,
+                    MaxBufferLength = 100
+                }
+            });
+    private AgentManager _agentManager = new AgentManager();
 
    public Account(TaskCompletionSource<TaskStatus> tcs)
         {

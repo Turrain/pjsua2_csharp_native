@@ -16,7 +16,7 @@ namespace PjSua2.Lx
                 _account._agent.Listen(data);
                 _mediaPort.ClearQueue();
             };
-            _account._agent.auralisClient.OnBinaryMessage += data => {
+            _account._agent.AuralisClient.OnBinaryMessage += data => {
                 _mediaPort.AddToQueue(data);
             };
             _mediaPort._vad.VoiceFrameDetected += delegate (MediaFrame frame, bool isVoiced) {

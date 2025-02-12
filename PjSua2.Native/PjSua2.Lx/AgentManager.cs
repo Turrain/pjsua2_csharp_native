@@ -1,90 +1,246 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using PjSua2.Lx.AudioStream;
+using PjSua2.Lx.Configuration;
 using PjSua2.Lx.GenStream;
 using PjSua2.Native;
+
 namespace PjSua2.Lx
 {
-
-
-    public class AgentManager
+    /// <summary>
+    /// An interface for managing agent configurations and instances.
+    /// </summary>
+    public interface IAgentManager
     {
-        private static readonly Lazy<AgentManager> _instance =
-            new Lazy<AgentManager>(() => new AgentManager());
+        /// <summary>
+        /// Adds or updates an agent configuration with the specified identifier.
+        /// </summary>
+        void AddConfiguration(string configId, AgentConfiguration configuration);
 
-        public static AgentManager Instance => _instance.Value;
+        /// <summary>
+        /// Gets (or creates) an agent instance for the given agentId.
+        /// </summary>
+        Agent GetAgent(string agentId);
+
+        /// <summary>
+        /// Removes and disposes an agent by its identifier.
+        /// </summary>
+        Task RemoveAgentAsync(string agentId);
+
+        /// <summary>
+        /// Retrieves all agent configurations.
+        /// </summary>
+        IDictionary<string, AgentConfiguration> GetConfigurations();
+    }
+
+     /// <summary>
+    /// A concrete implementation of IAgentManager.
+    /// </summary>
+    public class AgentManager : IAgentManager
+    {
+        private readonly Dictionary<string, AgentConfiguration> _configurations;
+        private readonly Dictionary<string, Agent> _agents;
+
+        public AgentManager()
+        {
+            _configurations = new Dictionary<string, AgentConfiguration>();
+            _agents = new Dictionary<string, Agent>();
+
+            // Add a default configuration.
+            var defaultConfig = new AgentConfiguration
+            {
+                AgentId = "default",
+                Auralis = new WebSocketConfig 
+                { 
+                    Endpoint = "ws://37.151.89.206:8766", 
+                    AutoReconnect = true, 
+                    ReconnectInterval = 5000 
+                },
+                Whisper = new WebSocketConfig 
+                { 
+                    Endpoint = "ws://37.151.89.206:8765", 
+                    AutoReconnect = true, 
+                    ReconnectInterval = 5000 
+                },
+                Ollama = new OllamaConfig
+                {
+                    Endpoint = "https://models.aitomaton.online/api/generate",
+                    Model = "phi4",
+                    Temperature = 0.9F,
+                    MaxBufferLength = 100
+                }
+            };
+
+            AddConfiguration("default", defaultConfig);
+        }
+
+        public void AddConfiguration(string configId, AgentConfiguration configuration)
+        {
+            if (string.IsNullOrEmpty(configId))
+                throw new ArgumentException("Configuration ID cannot be null or empty", nameof(configId));
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
+            _configurations[configId] = configuration;
+        }
 
         public Agent GetAgent(string agentId)
         {
-            // Implementation
-            return new Agent();
+            if (string.IsNullOrEmpty(agentId))
+                agentId = "default";
+
+            if (_agents.TryGetValue(agentId, out var existingAgent))
+                return existingAgent;
+
+            // Use the specific configuration if it exists; otherwise, use default.
+            var config = _configurations.ContainsKey(agentId) ? _configurations[agentId] : _configurations["default"];
+            var newAgent = new Agent(config);
+            _agents[agentId] = newAgent;
+            return newAgent;
         }
+
+        public async Task RemoveAgentAsync(string agentId)
+        {
+            if (_agents.TryGetValue(agentId, out var agent))
+            {
+                await agent.DisposeAsync();
+                _agents.Remove(agentId);
+            }
+        }
+
+        public IDictionary<string, AgentConfiguration> GetConfigurations() => _configurations;
     }
 
-    public class Agent
+    /// <summary>
+    /// Represents an agent that establishes connections to external services and processes messages.
+    /// </summary>
+    public class Agent : IAsyncDisposable
     {
-        public AuralisClient auralisClient { get; set; } = new AuralisClient("ws://37.151.89.206:8766");
-        public WhisperClient whisperClient { get; set; } = new WhisperClient("ws://37.151.89.206:8765");
-        public OllamaStreamingService ollamaStreamingService { get; set; } = new();
-        public List<string> history { get; set; } = new();
+        private readonly AgentConfiguration _configuration;
+        public AuralisClient AuralisClient { get; private set; }
+        public WhisperClient WhisperClient { get; private set; }
+        public OllamaStreamingService OllamaStreamingService { get; private set; }
+        /// <summary>
+        /// A simple history log of string messages. In a production scenario, you might store a more complex object.
+        /// </summary>
+        public List<string> History { get; private set; }
 
-
-
-        public Agent()
+        public Agent(AgentConfiguration configuration)
         {
-            auralisClient.OnBinaryMessage += data =>
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            History = new List<string>();
+
+            AuralisClient = new AuralisClient(_configuration.Auralis.Endpoint);
+            WhisperClient = new WhisperClient(_configuration.Whisper.Endpoint);
+            OllamaStreamingService = new OllamaStreamingService(_configuration.Ollama.MaxBufferLength);
+
+            // Subscribe to events from Auralis.
+            AuralisClient.OnBinaryMessage += data =>
             {
-           //     Console.WriteLine("Auralis Received Binary: " + BitConverter.ToString(data));
+                // For example, log the binary data or update internal state.
             };
-            auralisClient.OnError += ex =>
+            AuralisClient.OnError += ex =>
             {
                 Console.WriteLine("Auralis Error: " + ex.Message);
+                if (_configuration.Auralis.AutoReconnect)
+                {
+                    Task.Delay(_configuration.Auralis.ReconnectInterval)
+                        .ContinueWith(_ => AuralisClient.ConnectAsync());
+                }
             };
 
-            whisperClient.OnJsonMessage += json =>
+            // Subscribe to events from Whisper.
+            WhisperClient.OnJsonMessage += json =>
             {
                 Console.WriteLine("Whisper Received JSON: " + json.ToString());
-                Console.WriteLine(json.GetProperty("text"));
-                Think(json.GetProperty("text").GetString());
+                if (json.TryGetProperty("text", out var textElement))
+                {
+                    var text = textElement.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        // Process the recognized text.
+                        Think(text);
+                    }
+                }
             };
-            whisperClient.OnError += ex =>
+            WhisperClient.OnError += ex =>
             {
                 Console.WriteLine("Whisper Error: " + ex.Message);
-            };
-            ollamaStreamingService.SentenceReady += sentenceReady => {
-                Speak(sentenceReady);
+                if (_configuration.Whisper.AutoReconnect)
+                {
+                    Task.Delay(_configuration.Whisper.ReconnectInterval)
+                        .ContinueWith(_ => WhisperClient.ConnectAsync());
+                }
             };
 
-            auralisClient.ConnectAsync();
-            whisperClient.ConnectAsync();
+            // When a sentence is ready from the Ollama stream, speak it via Auralis.
+            OllamaStreamingService.SentenceReady += sentence =>
+            {
+                _ = Speak(sentence);
+            };
+
+            // Initialize connections asynchronously.
+            InitializeConnections();
         }
 
+        /// <summary>
+        /// Connects to the external services.
+        /// </summary>
+        private async void InitializeConnections()
+        {
+            try
+            {
+                await AuralisClient.ConnectAsync();
+                await WhisperClient.ConnectAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing connections: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Forwards audio data to the Whisper service.
+        /// </summary>
         public void Listen(byte[] framesData)
         {
-            whisperClient.SendAudioAsync(framesData);
+            WhisperClient.SendAudioAsync(framesData);
         }
-        public void Think(string input) { 
-            ollamaStreamingService.StartStreamingAsync(input);
+
+        /// <summary>
+        /// Processes input text by starting a streaming response via Ollama.
+        /// </summary>
+        public void Think(string input)
+        {
+            OllamaStreamingService.StartStreamingAsync(input);
         }
+
+        /// <summary>
+        /// Sends the given text to the Auralis service for “speaking.”
+        /// </summary>
         public async Task Speak(string input)
         {
-            var json = new
+            var command = new
             {
                 input = input,
                 voice = "default",
                 stream = true,
-                temperature = 0.9
+                temperature = _configuration.Ollama.Temperature
             };
-          
-            await auralisClient.SendCommandAsync(json);
+
+            await AuralisClient.SendCommandAsync(command);
+            // Optionally, update the history.
+            History.Add("Agent: " + input);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (AuralisClient != null)
+                await AuralisClient.DisposeAsync();
+            if (WhisperClient != null)
+                await WhisperClient.DisposeAsync();
         }
     }
 }
-
-//     var input = new
-//     {
-//         input = "Hello, world!",
-//         voice = "default",
-//         stream = true,
-//         temperature = 0.5
-//     };
