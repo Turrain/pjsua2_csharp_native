@@ -7,6 +7,7 @@ using PjSua2.Native.pjsua2;
 using PjSip.App.Services;
 using PjSip.App.Exceptions;
 using PjSip.App.Data;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PjSip.App.Sip
 {
@@ -16,14 +17,17 @@ namespace PjSip.App.Sip
         private readonly ILogger<Account> _logger;
         private readonly ILoggerFactory _loggerFactory;
         public int DbId { get; }
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
-        public Account(SipDbContext context, int dbId, ILoggerFactory loggerFactory)
+        public Account(SipDbContext context, int dbId, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
         {
             _context = context;
             DbId = dbId;
             _loggerFactory = loggerFactory;
             _logger = loggerFactory.CreateLogger<Account>();
+            _serviceScopeFactory = serviceScopeFactory;
         }
+
 
         public override void onIncomingCall(OnIncomingCallParam prm)
         {
@@ -75,46 +79,47 @@ namespace PjSip.App.Sip
             }
         }
 
-        public override void onRegState(OnRegStateParam prm)
+
+
+       public override void onRegState(OnRegStateParam prm)
+{
+    try
+    {
+        var isRegistered = prm.code == pjsip_status_code.PJSIP_SC_OK;
+        
+        Task.Run(async () =>
         {
-            try
+            using var scope = _serviceScopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+            
+            // Add retry logic
+            for (int i = 0; i < 3; i++)
             {
-                var isRegistered = prm.code == pjsip_status_code.PJSIP_SC_OK;
-                _logger.LogInformation(
-                    "Registration state changed for account {DbId}. Status: {Status}", 
-                    DbId, 
-                    isRegistered ? "Registered" : "Not Registered");
-
-                Task.Run(async () =>
+                try
                 {
-                    try
+                    var account = await context.SipAccounts.FindAsync(DbId);
+                    if (account != null)
                     {
-                        var account = await _context.SipAccounts.FindAsync(DbId);
-                        if (account != null)
-                        {
-                            account.IsActive = isRegistered;
-                            await _context.SaveChangesAsync();
-
-                            _logger.LogInformation(
-                                "Account {DbId} status updated to {Status}", 
-                                DbId, 
-                                isRegistered);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Account {DbId} not found in database", DbId);
-                        }
+                        account.IsActive = isRegistered;
+                        await context.SaveChangesAsync();
+                        _logger.LogInformation("Account {DbId} status updated to {Status}", DbId, isRegistered);
+                        return;
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to update account status for {DbId}", DbId);
-                    }
-                });
+                    await Task.Delay(500); // Wait before retry
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update account status for {DbId}", DbId);
+                    if (i == 2) throw;
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error handling registration state change for account {DbId}", DbId);
-            }
-        }
+            _logger.LogError("Account {DbId} not found after retries", DbId);
+        });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error handling registration state change for account {DbId}", DbId);
+    }
+}
     }
 }

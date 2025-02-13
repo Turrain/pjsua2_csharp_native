@@ -8,6 +8,8 @@ using PjSua2.Native.pjsua2;
 using PjSip.App.Data;
 using PjSip.App.Models;
 using PjSip.App.Exceptions;
+using Microsoft.Extensions.DependencyInjection;
+using PjSip.App.Utils;
 
 namespace PjSip.App.Services
 {
@@ -16,15 +18,18 @@ namespace PjSip.App.Services
         private readonly SipManager _sipManager;
         private readonly SipDbContext _context;
         private readonly ILogger<SipManagerService> _logger;
-
+  private readonly IServiceScopeFactory _serviceScopeFactory;
         public SipManagerService(
+            SipManager sipManager,
             SipDbContext context, 
             ILogger<SipManagerService> logger,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,   IServiceScopeFactory serviceScopeFactory)
         {
             _context = context;
             _logger = logger;
-            _sipManager = new SipManager(context, loggerFactory.CreateLogger<SipManager>(), loggerFactory);
+         _serviceScopeFactory = serviceScopeFactory;
+    
+           _sipManager = sipManager;
         }
 
         private void EnsureThreadRegistered()
@@ -199,13 +204,40 @@ namespace PjSip.App.Services
                     ex);
             }
         }
+       public async Task<IEnumerable<SipAccount>> GetAllAccountsAsync()
+    {
+        
+            try
+            {
+                var accounts = await _context.SipAccounts
+                    .Select(a => new SipAccount
+                    {
+                        Id = a.Id,
+                        AccountId = a.AccountId,
+                        Username = a.Username,
+                        Domain = a.Domain,
+                        RegistrarUri = a.RegistrarUri,
+                        IsActive = a.IsActive,
+                        CreatedAt = a.CreatedAt,
+                    })
+                    .ToListAsync();
+
+                return accounts;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve accounts");
+                throw;
+            }
+      
+    }
 
         public void Dispose()
         {
             try
             {
                 EnsureThreadRegistered();
-                _sipManager?.Dispose();
+          //      _sipManager?.Dispose();
             }
             catch (Exception ex)
             {

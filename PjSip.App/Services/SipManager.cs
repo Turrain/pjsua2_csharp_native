@@ -9,12 +9,13 @@ using PjSip.App.Exceptions;
 using PjSip.App.Utils;
 using PjSip.App.Sip;
 using PjSip.App.Data;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PjSip.App.Services
 {
     public class SipManager : IDisposable
     {
-        private readonly ThreadSafeEndpoint _endpoint;
+   
         private readonly BlockingCollection<Action> _taskQueue = new();
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _workerTask;
@@ -22,7 +23,7 @@ namespace PjSip.App.Services
         private readonly ILogger<SipManager> _logger;
         private readonly RetryPolicy _retryPolicy;
         private readonly ILoggerFactory _loggerFactory;
-
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         // State containers
         private readonly ConcurrentDictionary<string, Sip.Account> _accounts = new();
         private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls = new();
@@ -31,18 +32,18 @@ namespace PjSip.App.Services
         private const int MAX_RETRIES = 3;
         private const int RETRY_DELAY_MS = 1000;
 
-        public SipManager(SipDbContext context, ILogger<SipManager> logger, ILoggerFactory loggerFactory)
+        public SipManager(SipDbContext context, ILogger<SipManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
         {
             _context = context;
             _logger = logger;
             _loggerFactory = loggerFactory;
-
+            _serviceScopeFactory = serviceScopeFactory;
             try
             {
-                _endpoint = new ThreadSafeEndpoint(logger);
-                _endpoint.Initialize();
+               
+              
                 InitializeTransport();
-                _endpoint.Instance.audDevManager().setNullDev();
+                ThreadSafeEndpoint.Instance.InstanceEndpoint.audDevManager().setNullDev();
 
                 // Initialize retry policy and circuit breaker
                 _retryPolicy = new RetryPolicy(MAX_RETRIES, RETRY_DELAY_MS);
@@ -55,12 +56,12 @@ namespace PjSip.App.Services
             {
                 _logger.LogError(ex, "Failed to initialize PJSUA2");
                 throw new TransportException(
-                    "Failed to initialize PJSIP stack", 
-                    "UDP", 
-                    5060, 
+                    "Failed to initialize PJSIP stack",
+                    "UDP",
+                    5060,
                     ex);
             }
-            
+
             try
             {
                 // Start worker thread
@@ -72,35 +73,35 @@ namespace PjSip.App.Services
                 throw;
             }
         }
-     
+
         private void InitializeTransport()
         {
             try
             {
-                _endpoint.ExecuteSafely(() =>
+                ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
                 {
-                    var transport = _endpoint.Instance.transportCreate(
+                    var transport =  ThreadSafeEndpoint.Instance.InstanceEndpoint.transportCreate(
                         pjsip_transport_type_e.PJSIP_TRANSPORT_UDP,
                         new TransportConfig { port = 18090, portRange = 50, randomizePort = true });
 
                     _logger.LogInformation("Transport created successfully on port {Port}", 5060);
                 });
-                
+
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to create transport");
                 throw new TransportException(
-                    "Failed to create UDP transport", 
-                    "UDP", 
-                    5060, 
+                    "Failed to create UDP transport",
+                    "UDP",
+                    5060,
                     ex);
             }
         }
 
         private void RegisterAccountInternal(SipAccount account)
         {
-            _endpoint.ExecuteSafely(() =>
+            ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
             {
                 if (!_circuitBreaker.CanExecute())
                 {
@@ -109,7 +110,17 @@ namespace PjSip.App.Services
                         account.AccountId,
                         503); // Service Unavailable
                 }
-
+                try
+                {
+                    account.IsActive = false; // Initially set to false
+                    _context.Update(account);
+                    _context.SaveChanges();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update account status");
+                    throw;
+                }
                 var acfg = new AccountConfig
                 {
                     idUri = $"sip:{account.Username}@{account.Domain}",
@@ -122,23 +133,13 @@ namespace PjSip.App.Services
                 acfg.sipConfig.authCreds.Add(new AuthCredInfo(
                     "digest", "*", account.Username, 0, account.Password));
 
-                var pjsipAccount = new Sip.Account(_context, account.Id, _loggerFactory);
+                var pjsipAccount = new Sip.Account(_context, account.Id, _loggerFactory, _serviceScopeFactory);
                 pjsipAccount.create(acfg);
-                
-                _accounts[account.AccountId] = pjsipAccount;
-                account.IsActive = true;
 
-                try
-                {
-                    _context.Update(account);
-                    _context.SaveChanges();
-                    _circuitBreaker.OnSuccess();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to update account status");
-                    throw;
-                }
+                _accounts[account.AccountId] = pjsipAccount;
+                _circuitBreaker.OnSuccess();
+
+
             });
         }
 
@@ -153,7 +154,7 @@ namespace PjSip.App.Services
                     var task = _taskQueue.Take(_cts.Token);
                     await Task.Run(() =>
                     {
-                        _endpoint.ExecuteSafely(() => task());
+                        ThreadSafeEndpoint.Instance.ExecuteSafely(() => task());
                     }, _cts.Token);
                 }
                 catch (OperationCanceledException)
@@ -170,12 +171,12 @@ namespace PjSip.App.Services
         public async Task<SipAccount> RegisterAccountAsync(SipAccount account)
         {
             var tcs = new TaskCompletionSource<SipAccount>();
-            
+
             EnqueueTask(() =>
             {
                 try
                 {
-                    _endpoint.ExecuteSafely(() =>
+                    ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
                     {
                         RegisterAccountInternal(account);
                         tcs.SetResult(account);
@@ -188,7 +189,7 @@ namespace PjSip.App.Services
                 }
             });
 
-            try 
+            try
             {
                 return await tcs.Task.ConfigureAwait(false);
             }
@@ -205,7 +206,7 @@ namespace PjSip.App.Services
             {
                 try
                 {
-                    _endpoint.ExecuteSafely(() =>
+                    ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
                     {
                         if (!_accounts.TryGetValue(accountId, out var account))
                         {
@@ -218,7 +219,7 @@ namespace PjSip.App.Services
                         var call = new Sip.Call(account, _context, _loggerFactory);
                         var prm = new CallOpParam(true);
                         call.makeCall(destUri, prm);
-                        
+
                         var sipCall = new SipCall
                         {
                             CallId = call.getId(),
@@ -226,7 +227,7 @@ namespace PjSip.App.Services
                             Status = "INITIATED",
                             SipAccountId = account.DbId
                         };
-                        
+
                         try
                         {
                             _context.SipCalls.Add(sipCall);
@@ -237,7 +238,7 @@ namespace PjSip.App.Services
                             _logger.LogError(ex, "Failed to save call record");
                             throw;
                         }
-                        
+
                         _activeCalls.TryAdd(call.getId(), (call, accountId));
                     });
                 }
@@ -257,7 +258,7 @@ namespace PjSip.App.Services
         {
             EnqueueTask(() =>
             {
-                _endpoint.ExecuteSafely(() =>
+                ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
                 {
                     if (!_activeCalls.TryRemove(callId, out var callInfo))
                     {
@@ -268,7 +269,7 @@ namespace PjSip.App.Services
                     try
                     {
                         callInfo.Call.hangup(new CallOpParam());
-                        
+
                         try
                         {
                             var dbCall = _context.SipCalls.First(c => c.CallId == callId);
@@ -300,7 +301,7 @@ namespace PjSip.App.Services
             try
             {
                 _cts.Cancel();
-                _endpoint.Instance.libDestroy();
+                ThreadSafeEndpoint.Instance.InstanceEndpoint.libDestroy();
                 _taskQueue.CompleteAdding();
                 _workerTask.Wait();
             }

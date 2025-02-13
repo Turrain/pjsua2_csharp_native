@@ -7,19 +7,47 @@ namespace PjSip.App.Utils
 {
     public class ThreadSafeEndpoint : IDisposable
     {
+        private static ThreadSafeEndpoint _instance;
+        private static readonly object _staticInitLock = new();
         private readonly Endpoint _endpoint;
         private readonly ILogger _logger;
         private readonly AsyncLocal<bool> _threadRegistered = new();
         private readonly object _initLock = new();
         private bool _isInitialized;
 
-        public ThreadSafeEndpoint(ILogger logger)
+        private ThreadSafeEndpoint(ILogger logger)
         {
             _endpoint = new Endpoint();
             _logger = logger;
         }
 
-        public void Initialize()
+        public static void Initialize(ILogger logger)
+        {
+            lock (_staticInitLock)
+            {
+                if (_instance != null)
+                {
+                    throw new InvalidOperationException("ThreadSafeEndpoint is already initialized.");
+                }
+
+                _instance = new ThreadSafeEndpoint(logger);
+                _instance.InitializeEndpoint();
+            }
+        }
+
+        public static ThreadSafeEndpoint Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    throw new InvalidOperationException("ThreadSafeEndpoint not initialized. Call Initialize() first.");
+                }
+                return _instance;
+            }
+        }
+
+        private void InitializeEndpoint()
         {
             if (_isInitialized) return;
 
@@ -34,11 +62,10 @@ namespace PjSip.App.Utils
                     uaConfig = { maxCalls = 32 },
                     medConfig = { hasIoqueue = true }
                 };
-                
 
                 _endpoint.libInit(epConfig);
                 _endpoint.libStart();
-                  _endpoint.audDevManager().setNullDev();
+                _endpoint.audDevManager().setNullDev();
                 _isInitialized = true;
             }
         }
@@ -76,7 +103,7 @@ namespace PjSip.App.Utils
             }
         }
 
-        public Endpoint Instance => _endpoint;
+        public Endpoint InstanceEndpoint => _endpoint;
 
         public void Dispose()
         {

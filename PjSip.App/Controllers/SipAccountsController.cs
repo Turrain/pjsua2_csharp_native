@@ -15,7 +15,7 @@ namespace PjSip.App.Controllers
         private readonly ILogger<SipAccountsController> _logger;
 
         public SipAccountsController(
-            SipManagerService sipManager, 
+            SipManagerService sipManager,
             ILogger<SipAccountsController> logger)
         {
             _sipManager = sipManager;
@@ -29,7 +29,26 @@ namespace PjSip.App.Controllers
             public string Domain { get; set; }
             public string RegistrarUri { get; set; }
         }
-
+        [HttpGet]
+        public async Task<IActionResult> GetAccounts()
+        {
+            try
+            {
+                var accounts = await _sipManager.GetAllAccountsAsync();
+                return Ok(accounts);
+            }
+            catch (Exception ex)
+            {
+                var correlationId = Guid.NewGuid().ToString();
+                _logger.LogError(ex, "Error retrieving accounts. CorrelationId: {CorrelationId}",
+                    correlationId);
+                return StatusCode(500, new
+                {
+                    error = "Failed to retrieve accounts",
+                    correlationId = correlationId
+                });
+            }
+        }
         [HttpPost]
         public async Task<IActionResult> RegisterAccount([FromBody] RegisterAccountRequest request)
         {

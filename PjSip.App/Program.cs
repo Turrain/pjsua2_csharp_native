@@ -8,9 +8,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using PjSip.App.Data;
 using PjSip.App.Services;
+using PjSip.App.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
-
+var logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<Program>();
+logger.LogInformation("Initializing ThreadSafeEndpoint");
+ThreadSafeEndpoint.Initialize(logger);
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -23,7 +26,6 @@ builder.Services.AddSwaggerGen(c =>
         Description = "API for managing SIP calls and accounts"
     });
 });
-
 // Configure logging
 builder.Services.AddLogging(logging =>
 {
@@ -37,6 +39,7 @@ builder.Services.AddDbContext<SipDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Register services
+builder.Services.AddSingleton<SipManager>();
 builder.Services.AddScoped<SipManagerService>();
 builder.Services.AddScoped<AgentManager>();
 

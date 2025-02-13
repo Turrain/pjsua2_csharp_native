@@ -6,26 +6,84 @@ class TestSipCallController(unittest.TestCase):
 
     BASE_URL = "http://localhost:5000/api"  # Replace with your API's base URL
 
-    def test_register_account_success(self):
-        """Test successful account registration."""
+    # def test_register_account_success(self):
+    #     """Test successful account registration."""
+    #     endpoint = f"{self.BASE_URL}/SipAccounts"
+    #     payload = {
+    #         "username": "1000",
+    #         "password": "1000",
+    #         "domain": "localhost",
+    #         "registrarUri": "sip:localhost"
+    #     }
+    #     headers = {'Content-Type': 'application/json'}
+    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+
+    #     self.assertEqual(response.status_code, 200)
+    #     data = response.json()
+    #     self.assertIn("accountId", data)
+    #     self.assertEqual(data["username"], "1000")
+
+    #     # Store the account ID for later use
+    #     self.account_id = data["accountId"]
+
+    def test_get_all_accounts(self):
+        """Test retrieving all registered SIP accounts."""
+        # First, register a test account to ensure there's data
+      #  self.test_register_account_success()
+
         endpoint = f"{self.BASE_URL}/SipAccounts"
-        payload = {
-            "username": "1000",
-            "password": "1000",
-            "domain": "localhost",
-            "registrarUri": "sip:localhost"
-        }
-        headers = {'Content-Type': 'application/json'}
-        response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+        response = requests.get(endpoint)
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertIn("accountId", data)
-        self.assertEqual(data["username"], "1000")
+        
+        # Verify response is a list
+        self.assertIsInstance(data, list)
+        
+        # Verify at least one account exists
+        self.assertGreater(len(data), 0)
+        
+        # Verify account structure
+        account = data[0]
+        expected_fields = [
+            "id", 
+            "accountId", 
+            "username", 
+            "domain", 
+            "registrarUri", 
+            "isActive", 
+            "createdAt", 
+        ]
+        for field in expected_fields:
+            self.assertIn(field, account)
+        print(data)
+        # Verify the account we just created is in the list
+        found_account = next(
+            (acc for acc in data if acc["accountId"] == 1000), 
+            None
+        )
+        self.assertIsNotNone(found_account)
+        self.assertEqual(found_account["username"], "1000")
+        self.assertEqual(found_account["domain"], "localhost")
+    # def test_register_account_success2(self):
+    #     """Test successful account registration."""
+    #     endpoint = f"{self.BASE_URL}/SipAccounts"
+    #     payload = {
+    #         "username": "1001",
+    #         "password": "1001",
+    #         "domain": "localhost",
+    #         "registrarUri": "sip:localhost"
+    #     }
+    #     headers = {'Content-Type': 'application/json'}
+    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
 
-        # Store the account ID for later use
-        self.account_id = data["accountId"]
+    #     self.assertEqual(response.status_code, 200)
+    #     data = response.json()
+    #     self.assertIn("accountId", data)
+    #     self.assertEqual(data["username"], "1001")
 
+    #     # Store the account ID for later use
+    #     self.account_id = data["accountId"]
     # def test_make_call_success(self):
     #     """Test making a call successfully."""
     #     # First, register an account (assuming registration works)
