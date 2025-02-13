@@ -25,7 +25,16 @@ class TestSipCallController(unittest.TestCase):
 
     #     # Store the account ID for later use
     #     self.account_id = data["accountId"]
+    def test_clear_all_accounts(self):
+        """Test clearing all registered SIP accounts."""
+        endpoint = f"{self.BASE_URL}/SipAccounts"
+        response = requests.delete(endpoint)
 
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("message", data)
+        self.assertEqual(data["message"], "All SIP accounts have been deleted")
+        
     def test_get_all_accounts(self):
         """Test retrieving all registered SIP accounts."""
         # First, register a test account to ensure there's data

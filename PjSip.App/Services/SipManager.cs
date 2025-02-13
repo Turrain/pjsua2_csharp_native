@@ -199,7 +199,53 @@ namespace PjSip.App.Services
                 throw;
             }
         }
+public void ClearAccounts()
+{
+    EnqueueTask(() =>
+    {
+        ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
+        {
+            try
+            {
+                foreach (var account in _accounts)
+                {
+                    try
+                    {
+                        account.Value.shutdown();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error shutting down account {AccountId}", account.Key);
+                    }
+                }
+                _accounts.Clear();
 
+                // Delete all accounts from database
+                using var scope = _serviceScopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+                
+                // First delete related calls
+                var calls = dbContext.SipCalls;
+                dbContext.SipCalls.RemoveRange(calls);
+                
+                // Then delete accounts
+                var accounts = dbContext.SipAccounts;
+                dbContext.SipAccounts.RemoveRange(accounts);
+                
+                dbContext.SaveChanges();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete accounts");
+                throw new SipRegistrationException(
+                    "Failed to delete accounts",
+                    "all",
+                    500,
+                    ex);
+            }
+        });
+    });
+}
         public void MakeCall(string accountId, string destUri)
         {
             EnqueueTask(() =>

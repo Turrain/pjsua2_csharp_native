@@ -18,18 +18,18 @@ namespace PjSip.App.Services
         private readonly SipManager _sipManager;
         private readonly SipDbContext _context;
         private readonly ILogger<SipManagerService> _logger;
-  private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         public SipManagerService(
             SipManager sipManager,
-            SipDbContext context, 
+            SipDbContext context,
             ILogger<SipManagerService> logger,
-            ILoggerFactory loggerFactory,   IServiceScopeFactory serviceScopeFactory)
+            ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
         {
             _context = context;
             _logger = logger;
-         _serviceScopeFactory = serviceScopeFactory;
-    
-           _sipManager = sipManager;
+            _serviceScopeFactory = serviceScopeFactory;
+
+            _sipManager = sipManager;
         }
 
         private void EnsureThreadRegistered()
@@ -83,7 +83,37 @@ namespace PjSip.App.Services
                     ex);
             }
         }
+public async Task ClearAccountsAsync()
+{
+    try
+    {
+        EnsureThreadRegistered();
+        
+        // Create TaskCompletionSource to handle the async operation
+        var tcs = new TaskCompletionSource();
+        
+        try
+        {
+            _sipManager.ClearAccounts();
+            tcs.SetResult();
+        }
+        catch (Exception ex)
+        {
+            tcs.SetException(ex);
+        }
 
+        await tcs.Task;
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Failed to clear accounts");
+        throw new SipRegistrationException(
+            "Failed to clear all accounts",
+            "all",
+            500,
+            ex);
+    }
+}
         public async Task<SipCall> MakeCallAsync(string accountId, string destination)
         {
             try
@@ -98,7 +128,7 @@ namespace PjSip.App.Services
                 // Check if account exists and is active
                 var account = await _context.SipAccounts
                     .FirstOrDefaultAsync(a => a.AccountId == accountId && a.IsActive);
-                
+
                 if (account == null)
                     throw new SipCallException("Account not found or inactive", -1, "INVALID_ACCOUNT");
 
@@ -204,9 +234,9 @@ namespace PjSip.App.Services
                     ex);
             }
         }
-       public async Task<IEnumerable<SipAccount>> GetAllAccountsAsync()
-    {
-        
+        public async Task<IEnumerable<SipAccount>> GetAllAccountsAsync()
+        {
+
             try
             {
                 var accounts = await _context.SipAccounts
@@ -229,15 +259,15 @@ namespace PjSip.App.Services
                 _logger.LogError(ex, "Failed to retrieve accounts");
                 throw;
             }
-      
-    }
+
+        }
 
         public void Dispose()
         {
             try
             {
                 EnsureThreadRegistered();
-          //      _sipManager?.Dispose();
+                //      _sipManager?.Dispose();
             }
             catch (Exception ex)
             {

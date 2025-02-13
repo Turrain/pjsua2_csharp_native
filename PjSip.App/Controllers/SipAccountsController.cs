@@ -49,6 +49,31 @@ namespace PjSip.App.Controllers
                 });
             }
         }
+        [HttpDelete]
+        public async Task<IActionResult> ClearAccounts()
+        {
+            try
+            {
+                await _sipManager.ClearAccountsAsync();
+                return Ok(new { message = "All accounts have been cleared" });
+            }
+            catch (SipRegistrationException ex)
+            {
+                _logger.LogError(ex, "Failed to clear accounts");
+                return StatusCode(500, new { error = ex.Message, code = ex.ErrorCode });
+            }
+            catch (Exception ex)
+            {
+                var correlationId = Guid.NewGuid().ToString();
+                _logger.LogError(ex, "Unexpected error clearing accounts. CorrelationId: {CorrelationId}",
+                    correlationId);
+                return StatusCode(500, new
+                {
+                    error = "An unexpected error occurred while clearing accounts",
+                    correlationId = correlationId
+                });
+            }
+        }
         [HttpPost]
         public async Task<IActionResult> RegisterAccount([FromBody] RegisterAccountRequest request)
         {
