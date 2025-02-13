@@ -76,6 +76,12 @@ namespace PjSip.App.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_SipAccounts_AccountId",
+                table: "SipAccounts",
+                column: "AccountId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_SipCalls_SipAccountId",
                 table: "SipCalls",
                 column: "SipAccountId");

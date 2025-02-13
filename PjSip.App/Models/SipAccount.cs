@@ -1,8 +1,11 @@
+using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
+
 public class SipAccount
 {
     public int Id { get; set; }
-    public string AccountId { get; set; }  // Unique SIP identifier
-    public string Username { get; set; }
+  [Required]
+    public string AccountId { get; set; }      public string Username { get; set; }
     public string Password { get; set; }
     public string Domain { get; set; }
     public string RegistrarUri { get; set; }

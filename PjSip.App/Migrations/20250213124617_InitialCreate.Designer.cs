@@ -11,7 +11,7 @@ using PjSip.App.Data;
 namespace PjSip.App.Migrations
 {
     [DbContext(typeof(SipDbContext))]
-    [Migration("20250212194945_InitialCreate")]
+    [Migration("20250213124617_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -99,6 +99,9 @@ namespace PjSip.App.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .IsUnique();
 
                     b.ToTable("SipAccounts");
                 });

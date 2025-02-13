@@ -32,27 +32,13 @@ namespace PjSip.App.Services
             _sipManager = sipManager;
         }
 
-        private void EnsureThreadRegistered()
-        {
-            try
-            {
-                // This will throw if thread is not registered
-                Endpoint.instance().libIsThreadRegistered();
-            }
-            catch
-            {
-                // Register thread with PJSIP if not already registered
-                var threadDesc = $"ApiThread-{Thread.CurrentThread.ManagedThreadId}";
-                Endpoint.instance().libRegisterThread(threadDesc);
-                _logger.LogDebug("Registered API thread {ThreadId} with PJSIP", threadDesc);
-            }
-        }
+    
 
         public async Task<SipAccount> RegisterAccountAsync(SipAccount account)
         {
             try
             {
-                EnsureThreadRegistered();
+  
                 // Validate account data
                 if (string.IsNullOrEmpty(account.Username))
                     throw new ArgumentException("Username is required");
@@ -87,11 +73,25 @@ public async Task ClearAccountsAsync()
 {
     try
     {
-        EnsureThreadRegistered();
-        
-        // Create TaskCompletionSource to handle the async operation
+        // First clear the database
+        // Delete all calls
+        var calls = await _context.SipCalls.ToListAsync();
+        if (calls.Any())
+        {
+            _context.SipCalls.RemoveRange(calls);
+            await _context.SaveChangesAsync();
+        }
+
+        // Then delete all accounts
+        var accounts = await _context.SipAccounts.ToListAsync();
+        if (accounts.Any())
+        {
+            _context.SipAccounts.RemoveRange(accounts);
+            await _context.SaveChangesAsync();
+        }
+
+        // Now clear the PJSIP accounts
         var tcs = new TaskCompletionSource();
-        
         try
         {
             _sipManager.ClearAccounts();
@@ -103,6 +103,8 @@ public async Task ClearAccountsAsync()
         }
 
         await tcs.Task;
+        
+        _logger.LogInformation("Successfully cleared all accounts and related calls");
     }
     catch (Exception ex)
     {
@@ -118,7 +120,7 @@ public async Task ClearAccountsAsync()
         {
             try
             {
-                EnsureThreadRegistered();
+          
                 // Validate input
                 if (string.IsNullOrEmpty(accountId))
                     throw new ArgumentException("Account ID is required");
@@ -180,7 +182,7 @@ public async Task ClearAccountsAsync()
         {
             try
             {
-                EnsureThreadRegistered();
+             
                 var call = await _context.SipCalls
                     .Include(c => c.Account)
                     .FirstOrDefaultAsync(c => c.CallId == callId);
@@ -208,7 +210,7 @@ public async Task ClearAccountsAsync()
         {
             try
             {
-                EnsureThreadRegistered();
+      
                 var call = await _context.SipCalls.FindAsync(callId);
                 if (call == null)
                 {
@@ -266,7 +268,7 @@ public async Task ClearAccountsAsync()
         {
             try
             {
-                EnsureThreadRegistered();
+           
                 //      _sipManager?.Dispose();
             }
             catch (Exception ex)

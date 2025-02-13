@@ -207,6 +207,7 @@ public void ClearAccounts()
         {
             try
             {
+                // Shutdown PJSIP accounts
                 foreach (var account in _accounts)
                 {
                     try
@@ -219,26 +220,14 @@ public void ClearAccounts()
                     }
                 }
                 _accounts.Clear();
-
-                // Delete all accounts from database
-                using var scope = _serviceScopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<SipDbContext>();
                 
-                // First delete related calls
-                var calls = dbContext.SipCalls;
-                dbContext.SipCalls.RemoveRange(calls);
-                
-                // Then delete accounts
-                var accounts = dbContext.SipAccounts;
-                dbContext.SipAccounts.RemoveRange(accounts);
-                
-                dbContext.SaveChanges();
+                _logger.LogInformation("Successfully cleared all PJSIP accounts");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete accounts");
+                _logger.LogError(ex, "Failed to clear PJSIP accounts");
                 throw new SipRegistrationException(
-                    "Failed to delete accounts",
+                    "Failed to clear PJSIP accounts",
                     "all",
                     500,
                     ex);

@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -9,11 +10,13 @@ using Microsoft.OpenApi.Models;
 using PjSip.App.Data;
 using PjSip.App.Services;
 using PjSip.App.Utils;
+Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
+
 
 var builder = WebApplication.CreateBuilder(args);
-var logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<Program>();
-logger.LogInformation("Initializing ThreadSafeEndpoint");
-ThreadSafeEndpoint.Initialize(logger);
+var logger2 = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<Program>();
+logger2.LogInformation("Initializing ThreadSafeEndpoint");
+ThreadSafeEndpoint.Initialize(logger2);
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -60,10 +63,28 @@ if (app.Environment.IsDevelopment())
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SipDbContext>();
-    dbContext.Database.EnsureCreated();
-    if (dbContext.Database.GetPendingMigrations().Any())
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
     {
-        dbContext.Database.Migrate();
+        logger.LogInformation("Checking database...");
+        if (!dbContext.Database.CanConnect())
+        {
+            logger.LogInformation("Creating database...");
+            dbContext.Database.EnsureCreated();
+        }
+
+        var pendingMigrations = dbContext.Database.GetPendingMigrations();
+        if (pendingMigrations.Any())
+        {
+            logger.LogInformation("Applying pending migrations...");
+            dbContext.Database.Migrate();
+        }
+        logger.LogInformation("Database initialization completed successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "An error occurred while initializing the database");
+        throw;
     }
 }
 

@@ -97,6 +97,9 @@ namespace PjSip.App.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountId")
+                        .IsUnique();
+
                     b.ToTable("SipAccounts");
                 });
 
