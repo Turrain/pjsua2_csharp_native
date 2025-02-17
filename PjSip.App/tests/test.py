@@ -35,6 +35,27 @@ class TestSipCallController(unittest.TestCase):
     #     # Store the account ID for later use
     #     self.account_id = data["accountId"]
 
+    # def test_register_account_success2(self):
+    #     """Test successful account registration."""
+    #     endpoint = f"{self.BASE_URL}/SipAccounts"
+    #     payload = {
+    #         "username": "1001",
+    #         "password": "1001",
+    #         "domain": "localhost",
+    #         "registrarUri": "sip:localhost"
+    #     }
+    #     headers = {'Content-Type': 'application/json'}
+    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+
+    #     self.assertEqual(response.status_code, 200)
+    #     data = response.json()
+    #     self.assertIn("accountId", data)
+    #     self.assertEqual(data["username"], "1001")
+
+    #     # Store the account ID for later use
+    #     self.account_id = data["accountId"]
+
+        
     def test_get_all_accounts(self):
         """Test retrieving all registered SIP accounts."""
         # First, register a test account to ensure there's data
@@ -68,31 +89,13 @@ class TestSipCallController(unittest.TestCase):
         print(data)
         # Verify the account we just created is in the list
         found_account = next(
-            (acc for acc in data if acc["accountId"] == 1000), 
+            (acc for acc in data if acc["username"] == '1000'), 
             None
         )
         self.assertIsNotNone(found_account)
         self.assertEqual(found_account["username"], "1000")
         self.assertEqual(found_account["domain"], "localhost")
-    # def test_register_account_success2(self):
-    #     """Test successful account registration."""
-    #     endpoint = f"{self.BASE_URL}/SipAccounts"
-    #     payload = {
-    #         "username": "1001",
-    #         "password": "1001",
-    #         "domain": "localhost",
-    #         "registrarUri": "sip:localhost"
-    #     }
-    #     headers = {'Content-Type': 'application/json'}
-    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
 
-    #     self.assertEqual(response.status_code, 200)
-    #     data = response.json()
-    #     self.assertIn("accountId", data)
-    #     self.assertEqual(data["username"], "1001")
-
-    #     # Store the account ID for later use
-    #     self.account_id = data["accountId"]
     # def test_make_call_success(self):
     #     """Test making a call successfully."""
     #     # First, register an account (assuming registration works)

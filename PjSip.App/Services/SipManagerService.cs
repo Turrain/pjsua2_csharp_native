@@ -1,59 +1,53 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-using System.Threading;
-using System.Linq;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using PjSua2.Native.pjsua2;
-using PjSip.App.Data;
-using PjSip.App.Models;
-using PjSip.App.Exceptions;
 using Microsoft.Extensions.DependencyInjection;
-using PjSip.App.Utils;
+using Microsoft.Extensions.Logging;
+using PjSip.App.Data;
+using PjSip.App.Exceptions;
+using PjSip.App.Models;
 
 namespace PjSip.App.Services
 {
-    public class SipManagerService : IDisposable
+    public class SipManagerService
     {
         private readonly SipManager _sipManager;
-        private readonly SipDbContext _context;
         private readonly ILogger<SipManagerService> _logger;
-        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IServiceScopeFactory _scopeFactory;
+
         public SipManagerService(
             SipManager sipManager,
-            SipDbContext context,
             ILogger<SipManagerService> logger,
-            ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
+            IServiceScopeFactory scopeFactory)
         {
-            _context = context;
-            _logger = logger;
-            _serviceScopeFactory = serviceScopeFactory;
-
             _sipManager = sipManager;
+            _logger = logger;
+            _scopeFactory = scopeFactory;
         }
-
-    
 
         public async Task<SipAccount> RegisterAccountAsync(SipAccount account)
         {
             try
             {
-  
-                // Validate account data
-                if (string.IsNullOrEmpty(account.Username))
-                    throw new ArgumentException("Username is required");
-                if (string.IsNullOrEmpty(account.Password))
-                    throw new ArgumentException("Password is required");
-                if (string.IsNullOrEmpty(account.Domain))
-                    throw new ArgumentException("Domain is required");
-                if (string.IsNullOrEmpty(account.RegistrarUri))
-                    throw new ArgumentException("Registrar URI is required");
+                ValidateAccount(account);
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
 
-                return await _sipManager.RegisterAccountAsync(account);
-            }
-            catch (ArgumentException)
-            {
-                throw;
+                var existingAccount = await context.SipAccounts
+                    .FirstOrDefaultAsync(a => a.AccountId == account.AccountId);
+
+                if (existingAccount != null)
+                {
+                    throw new SipRegistrationException(
+                        "Account already exists", 
+                        account.AccountId, 
+                        409);
+                }
+
+                await _sipManager.RegisterAccountAsync(account);
+                return await context.SipAccounts
+                    .FirstAsync(a => a.AccountId == account.AccountId);
             }
             catch (SipRegistrationException)
             {
@@ -61,107 +55,39 @@ namespace PjSip.App.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error during account registration");
+                _logger.LogError(ex, "Account registration failed");
                 throw new SipRegistrationException(
-                    "Failed to register account due to an unexpected error",
-                    account.AccountId,
-                    500,
+                    "Registration failed", 
+                    account.AccountId, 
+                    500, 
                     ex);
             }
         }
-public async Task ClearAccountsAsync()
-{
-    try
-    {
-        // First clear the database
-        // Delete all calls
-        var calls = await _context.SipCalls.ToListAsync();
-        if (calls.Any())
+
+        public async Task ClearAccountsAsync()
         {
-            _context.SipCalls.RemoveRange(calls);
-            await _context.SaveChangesAsync();
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+            await ClearDatabaseEntities(context);
+            await _sipManager.ClearAccountsAsync();
         }
 
-        // Then delete all accounts
-        var accounts = await _context.SipAccounts.ToListAsync();
-        if (accounts.Any())
-        {
-            _context.SipAccounts.RemoveRange(accounts);
-            await _context.SaveChangesAsync();
-        }
-
-        // Now clear the PJSIP accounts
-        var tcs = new TaskCompletionSource();
-        try
-        {
-            _sipManager.ClearAccounts();
-            tcs.SetResult();
-        }
-        catch (Exception ex)
-        {
-            tcs.SetException(ex);
-        }
-
-        await tcs.Task;
-        
-        _logger.LogInformation("Successfully cleared all accounts and related calls");
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Failed to clear accounts");
-        throw new SipRegistrationException(
-            "Failed to clear all accounts",
-            "all",
-            500,
-            ex);
-    }
-}
         public async Task<SipCall> MakeCallAsync(string accountId, string destination)
         {
             try
             {
-          
-                // Validate input
-                if (string.IsNullOrEmpty(accountId))
-                    throw new ArgumentException("Account ID is required");
-                if (string.IsNullOrEmpty(destination))
-                    throw new ArgumentException("Destination URI is required");
-
-                // Check if account exists and is active
-                var account = await _context.SipAccounts
-                    .FirstOrDefaultAsync(a => a.AccountId == accountId && a.IsActive);
-
-                if (account == null)
-                    throw new SipCallException("Account not found or inactive", -1, "INVALID_ACCOUNT");
-
-                var call = new SipCall
-                {
-                    RemoteUri = destination,
-                    Status = "INITIATING",
-                    SipAccountId = account.Id,
-                    StartedAt = DateTime.UtcNow
-                };
-
-                try
-                {
-                    _sipManager.MakeCall(accountId, destination);
-                    return call;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to initiate call");
-                    call.Status = "FAILED";
-                    call.EndedAt = DateTime.UtcNow;
-                    throw new SipCallException(
-                        "Failed to initiate call",
-                        call.CallId,
-                        "CALL_FAILED",
-                        ex);
-                }
-            }
-            catch (ArgumentException)
-            {
-                throw;
+                ValidateCallParameters(accountId, destination);
+                
+                await _sipManager.MakeCallAsync(accountId, destination);
+                
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+                
+                return await context.SipCalls
+                    .OrderByDescending(c => c.StartedAt)
+                    .FirstAsync(c => c.Account.AccountId == accountId && 
+                                    c.RemoteUri == destination);
             }
             catch (SipCallException)
             {
@@ -169,112 +95,94 @@ public async Task ClearAccountsAsync()
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error during call initiation");
+                _logger.LogError(ex, "Call initiation failed");
                 throw new SipCallException(
-                    "Failed to make call due to an unexpected error",
-                    -1,
-                    "UNEXPECTED_ERROR",
+                    "Call failed", 
+                    -1, 
+                    "CALL_FAILURE", 
                     ex);
             }
         }
 
         public async Task<SipCall> GetCallStatusAsync(int callId)
         {
-            try
-            {
-             
-                var call = await _context.SipCalls
-                    .Include(c => c.Account)
-                    .FirstOrDefaultAsync(c => c.CallId == callId);
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
 
-                if (call == null)
-                {
-                    _logger.LogWarning("Call {CallId} not found", callId);
-                    return null;
-                }
+            var call = await context.SipCalls
+                .Include(c => c.Account)
+                .FirstOrDefaultAsync(c => c.CallId == callId);
 
-                return call;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get call status for {CallId}", callId);
-                throw new SipCallException(
-                    "Failed to retrieve call status",
-                    callId,
-                    "STATUS_FAILED",
-                    ex);
-            }
+            return call ?? throw new SipCallException(
+                "Call not found", 
+                callId, 
+                "NOT_FOUND");
         }
 
         public async Task HangupCallAsync(int callId)
         {
             try
             {
-      
-                var call = await _context.SipCalls.FindAsync(callId);
-                if (call == null)
+                await _sipManager.HangupCallAsync(callId);
+                
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+                
+                var call = await context.SipCalls.FindAsync(callId);
+                if (call != null)
                 {
-                    _logger.LogWarning("Attempted to hang up non-existent call {CallId}", callId);
-                    return;
+                    call.Status = "TERMINATED";
+                    call.EndedAt = DateTime.UtcNow;
+                    await context.SaveChangesAsync();
                 }
-
-                if (call.EndedAt.HasValue)
-                {
-                    _logger.LogWarning("Call {CallId} is already ended", callId);
-                    return;
-                }
-
-                _sipManager.HangupCall(callId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to hang up call {CallId}", callId);
+                _logger.LogError(ex, "Call termination failed");
                 throw new SipCallException(
-                    "Failed to hang up call",
-                    callId,
-                    "HANGUP_FAILED",
+                    "Hangup failed", 
+                    callId, 
+                    "HANGUP_FAILURE", 
                     ex);
             }
         }
+
         public async Task<IEnumerable<SipAccount>> GetAllAccountsAsync()
         {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
 
-            try
-            {
-                var accounts = await _context.SipAccounts
-                    .Select(a => new SipAccount
-                    {
-                        Id = a.Id,
-                        AccountId = a.AccountId,
-                        Username = a.Username,
-                        Domain = a.Domain,
-                        RegistrarUri = a.RegistrarUri,
-                        IsActive = a.IsActive,
-                        CreatedAt = a.CreatedAt,
-                    })
-                    .ToListAsync();
-
-                return accounts;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve accounts");
-                throw;
-            }
-
+            return await context.SipAccounts
+                .AsNoTracking()
+                .ToListAsync();
         }
 
-        public void Dispose()
+        private static async Task ClearDatabaseEntities(SipDbContext context)
         {
-            try
-            {
-           
-                //      _sipManager?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error disposing SipManager");
-            }
+            context.SipCalls.RemoveRange(await context.SipCalls.ToListAsync());
+            context.SipAccounts.RemoveRange(await context.SipAccounts.ToListAsync());
+            await context.SaveChangesAsync();
+        }
+
+        private static void ValidateAccount(SipAccount account)
+        {
+            if (string.IsNullOrEmpty(account.Username))
+                throw new ArgumentException("Username required");
+            
+            if (string.IsNullOrEmpty(account.Password))
+                throw new ArgumentException("Password required");
+            
+            if (string.IsNullOrEmpty(account.Domain))
+                throw new ArgumentException("Domain required");
+        }
+
+        private static void ValidateCallParameters(string accountId, string destination)
+        {
+            if (string.IsNullOrEmpty(accountId))
+                throw new ArgumentException("Account ID required");
+            
+            if (string.IsNullOrEmpty(destination))
+                throw new ArgumentException("Destination required");
         }
     }
 }

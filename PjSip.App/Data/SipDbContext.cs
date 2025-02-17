@@ -1,57 +1,73 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
 using PjSip.App.Models;
+using System.Text.Json;
 
-namespace PjSip.App.Data
+namespace PjSip.App.Data;
+
+public class SipDbContext : DbContext
 {
-    public class SipDbContextFactory : IDesignTimeDbContextFactory<SipDbContext>
-{
-    public SipDbContext CreateDbContext(string[] args)
+    public SipDbContext(DbContextOptions<SipDbContext> options) : base(options) { }
+
+    public DbSet<SipAccount> SipAccounts => Set<SipAccount>();
+    public DbSet<SipCall> SipCalls => Set<SipCall>();
+    public DbSet<AgentConfig> AgentConfigs => Set<AgentConfig>();
+    public DbSet<Message> Messages => Set<Message>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var optionsBuilder = new DbContextOptionsBuilder<SipDbContext>();
-        optionsBuilder.UseSqlite("Data Source=chat.db");
-        return new SipDbContext(optionsBuilder.Options);
+        // SipAccount Configuration
+        modelBuilder.Entity<SipAccount>(entity =>
+        {
+            entity.HasIndex(a => a.AccountId).IsUnique();
+            entity.Property(a => a.AccountId).HasMaxLength(255).IsRequired();
+            entity.HasMany(a => a.Calls)
+                .WithOne(c => c.Account)
+                .HasForeignKey(c => c.SipAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SipCall Configuration
+        modelBuilder.Entity<SipCall>(entity =>
+        {
+            entity.Property(c => c.RemoteUri).HasMaxLength(511).IsRequired();
+            entity.Property(c => c.Status).HasMaxLength(50).IsRequired();
+        });
+
+        // AgentConfig Configuration
+      modelBuilder.Entity<AgentConfig>(entity =>
+{
+    entity.Property(a => a.LLMConfig)
+        .HasConversion(
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null)!);
+
+    entity.Property(a => a.CreatedAt).HasDefaultValueSql("DATETIME('now')");
+    entity.Property(a => a.AgentId).HasMaxLength(255).IsRequired();
+    entity.Property(a => a.Model).HasMaxLength(255).IsRequired();
+});
+        // Message Configuration
+        modelBuilder.Entity<Message>(entity =>
+        {
+            entity.Property(m => m.Sender).HasMaxLength(255).IsRequired();
+            entity.Property(m => m.Content).IsRequired();
+        });
     }
 }
-    public class SipDbContext : DbContext
+
+public class SipDbContextFactory : IDesignTimeDbContextFactory<SipDbContext>
+{
+     public SipDbContext CreateDbContext(string[] args)
     {
-        public DbSet<SipAccount> SipAccounts { get; set; }
-        public DbSet<SipCall> SipCalls { get; set; }
-        public DbSet<AgentConfig> AgentConfigs { get; set; }
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json")
+            .Build();
 
-      public SipDbContext(DbContextOptions<SipDbContext> options)
-        : base(options)
-    {
-    }
+        var optionsBuilder = new DbContextOptionsBuilder<SipDbContext>();
+        optionsBuilder.UseSqlite(configuration.GetConnectionString("DefaultConnection"));
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
- modelBuilder.Entity<SipAccount>()
-        .HasIndex(a => a.AccountId)
-        .IsUnique();
-            modelBuilder.Entity<SipAccount>()
-                .HasMany(a => a.Calls)
-                .WithOne(c => c.Account)
-                .HasForeignKey(c => c.SipAccountId);
-
-            modelBuilder.Entity<AgentConfig>()
-                .Property(a => a.LLMConfig)
-                .HasConversion(
-                    v => JsonSerializer.Serialize(v, new JsonSerializerOptions()),
-                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, new JsonSerializerOptions()))
-                .Metadata.SetValueComparer(
-                    new ValueComparer<Dictionary<string, string>>(
-                        (d1, d2) => d1.SequenceEqual(d2),
-                        d => d.Aggregate(0, (hash, pair) => HashCode.Combine(hash, pair.GetHashCode())),
-                        d => new Dictionary<string, string>(d)
-                    ));
-
-            modelBuilder.Entity<AgentConfig>()
-                .Property(a => a.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP");
-        }
+        return new SipDbContext(optionsBuilder.Options);
     }
 }

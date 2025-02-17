@@ -1,353 +1,408 @@
 using System;
 using System.Collections.Concurrent;
-using System.Threading;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using PjSua2.Native.pjsua2;
 using PjSip.App.Exceptions;
-using PjSip.App.Utils;
-using PjSip.App.Sip;
 using PjSip.App.Data;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Generic;
+using PjSip.App.Utils;
+using PjSip.App.Models;
 
 namespace PjSip.App.Services
 {
-    public class SipManager : IDisposable
+    public class SipManager
     {
-   
-        private readonly BlockingCollection<Action> _taskQueue = new();
-        private readonly CancellationTokenSource _cts = new();
-        private readonly Task _workerTask;
-        private readonly SipDbContext _context;
+        private readonly BlockingCollection<ISipCommand> _commandQueue = new();
         private readonly ILogger<SipManager> _logger;
-        private readonly RetryPolicy _retryPolicy;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        // State containers
+        private readonly SipOperationPolicies _policies;
         private readonly ConcurrentDictionary<string, Sip.Account> _accounts = new();
         private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls = new();
-        private readonly CircuitBreaker _circuitBreaker;
 
-        private const int MAX_RETRIES = 3;
-        private const int RETRY_DELAY_MS = 1000;
-
-        public SipManager(SipDbContext context, ILogger<SipManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
+        public SipManager(
+            ILogger<SipManager> logger,
+            ILoggerFactory loggerFactory,
+            IServiceScopeFactory serviceScopeFactory)
         {
-            _context = context;
             _logger = logger;
             _loggerFactory = loggerFactory;
             _serviceScopeFactory = serviceScopeFactory;
-            try
-            {
-               
-              
-                InitializeTransport();
-                ThreadSafeEndpoint.Instance.InstanceEndpoint.audDevManager().setNullDev();
+            _policies = new SipOperationPolicies(logger);
 
-                // Initialize retry policy and circuit breaker
-                _retryPolicy = new RetryPolicy(MAX_RETRIES, RETRY_DELAY_MS);
+            InitializePjsip();
+            StartCommandProcessor();
+        }
+
+        private void InitializePjsip()
+        {
+            _policies.ExecuteSipOperation(() =>
+            {
+                var transportConfig = new TransportConfig 
+                { 
+                    port = 18090, 
+                    portRange = 50, 
+                    randomizePort = true 
+                };
+
+                ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
+                {
+                    ThreadSafeEndpoint.Instance.InstanceEndpoint.transportCreate(
+                        pjsip_transport_type_e.PJSIP_TRANSPORT_UDP,
+                        transportConfig);
+                    
+                    ThreadSafeEndpoint.Instance.InstanceEndpoint.audDevManager().setNullDev();
+                });
+                
+                return true;
+            }, "PJSIP Initialization");
+        }
+
+        private void StartCommandProcessor() => 
+            Task.Run(ProcessCommandsAsync);
+
+        private async Task ProcessCommandsAsync()
+        {
+            foreach (var command in _commandQueue.GetConsumingEnumerable())
+            {
+                await _policies.ExecuteWithRetry(async () =>
+                {
+                    await Task.Run(() => 
+                        ThreadSafeEndpoint.Instance.ExecuteSafely(command.Execute));
+                });
+            }
+        }
+
+        public Task RegisterAccountAsync(SipAccount account) => 
+            ExecuteCommand(new RegisterAccountCommand(
+                account, _serviceScopeFactory, _loggerFactory, _accounts));
+
+        public Task MakeCallAsync(string accountId, string destUri) => 
+            ExecuteCommand(new MakeCallCommand(
+                accountId, destUri, _serviceScopeFactory, _activeCalls, _accounts, _loggerFactory));
+
+        public Task HangupCallAsync(int callId) => 
+            ExecuteCommand(new HangupCallCommand(callId, _serviceScopeFactory, _activeCalls));
+        public Task ClearAccountsAsync() =>
+    ExecuteCommand(new ClearAccountsCommand(_serviceScopeFactory, _accounts, _loggerFactory));
+
+        private Task ExecuteCommand(ISipCommand command)
+        {
+            _commandQueue.Add(command);
+            return command.CompletionTask;
+        }
+
+        #region Policy Classes
+        private class SipOperationPolicies
+        {
+            private readonly CircuitBreaker _circuitBreaker;
+            private readonly ILogger _logger;
+
+            public SipOperationPolicies(ILogger logger)
+            {
+                _logger = logger;
                 _circuitBreaker = new CircuitBreaker(
                     failureThreshold: 5,
-                    resetTimeout: TimeSpan.FromMinutes(1)
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize PJSUA2");
-                throw new TransportException(
-                    "Failed to initialize PJSIP stack",
-                    "UDP",
-                    5060,
-                    ex);
+                    resetTimeout: TimeSpan.FromMinutes(1));
             }
 
-            try
+            public T ExecuteSipOperation<T>(Func<T> operation, string operationName)
             {
-                // Start worker thread
-                _workerTask = Task.Run(ProcessTaskQueue);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize manager");
-                throw;
-            }
-        }
-
-        private void InitializeTransport()
-        {
-            try
-            {
-                ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-                {
-                    var transport =  ThreadSafeEndpoint.Instance.InstanceEndpoint.transportCreate(
-                        pjsip_transport_type_e.PJSIP_TRANSPORT_UDP,
-                        new TransportConfig { port = 18090, portRange = 50, randomizePort = true });
-
-                    _logger.LogInformation("Transport created successfully on port {Port}", 5060);
-                });
-
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to create transport");
-                throw new TransportException(
-                    "Failed to create UDP transport",
-                    "UDP",
-                    5060,
-                    ex);
-            }
-        }
-
-        private void RegisterAccountInternal(SipAccount account)
-        {
-            ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-            {
-                if (!_circuitBreaker.CanExecute())
-                {
-                    throw new SipRegistrationException(
-                        "Registration service is currently unavailable",
-                        account.AccountId,
-                        503); // Service Unavailable
-                }
                 try
                 {
-                    account.IsActive = false; // Initially set to false
-                    _context.Update(account);
-                    _context.SaveChanges();
+                    if (!_circuitBreaker.CanExecute())
+                        throw new SipServiceUnavailableException();
+
+                    var result = operation();
+                    _circuitBreaker.OnSuccess();
+                    return result;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to update account status");
+                    _circuitBreaker.OnFailure();
+                    _logger.LogError(ex, "{Operation} failed", operationName);
                     throw;
                 }
-                var acfg = new AccountConfig
-                {
-                    idUri = $"sip:{account.Username}@{account.Domain}",
-                    regConfig = { registrarUri = account.RegistrarUri }
-                };
-                acfg.mediaConfig.transportConfig.portRange = 500;
-                acfg.mediaConfig.transportConfig.port = 0;
-
-
-                acfg.sipConfig.authCreds.Add(new AuthCredInfo(
-                    "digest", "*", account.Username, 0, account.Password));
-
-                var pjsipAccount = new Sip.Account(_context, account.Id, _loggerFactory, _serviceScopeFactory);
-                pjsipAccount.create(acfg);
-
-                _accounts[account.AccountId] = pjsipAccount;
-                _circuitBreaker.OnSuccess();
-
-
-            });
-        }
-
-        public void EnqueueTask(Action task) => _taskQueue.Add(task);
-
-        private async Task ProcessTaskQueue()
-        {
-            while (!_cts.IsCancellationRequested)
-            {
-                try
-                {
-                    var task = _taskQueue.Take(_cts.Token);
-                    await Task.Run(() =>
-                    {
-                        ThreadSafeEndpoint.Instance.ExecuteSafely(() => task());
-                    }, _cts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Task processing failed");
-                }
             }
-        }
 
-        public async Task<SipAccount> RegisterAccountAsync(SipAccount account)
-        {
-            var tcs = new TaskCompletionSource<SipAccount>();
-
-            EnqueueTask(() =>
+            public async Task ExecuteWithRetry(Func<Task> operation)
             {
-                try
-                {
-                    ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-                    {
-                        RegisterAccountInternal(account);
-                        tcs.SetResult(account);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Account registration failed due to thread registration or other error");
-                    tcs.SetException(ex);
-                }
-            });
-
-            try
-            {
-                return await tcs.Task.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to complete account registration task");
-                throw;
-            }
-        }
-public void ClearAccounts()
-{
-    EnqueueTask(() =>
-    {
-        ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-        {
-            try
-            {
-                // Shutdown PJSIP accounts
-                foreach (var account in _accounts)
+                const int maxRetries = 3;
+                for (var attempt = 0; attempt <= maxRetries; attempt++)
                 {
                     try
                     {
-                        account.Value.shutdown();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error shutting down account {AccountId}", account.Key);
-                    }
-                }
-                _accounts.Clear();
-                
-                _logger.LogInformation("Successfully cleared all PJSIP accounts");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to clear PJSIP accounts");
-                throw new SipRegistrationException(
-                    "Failed to clear PJSIP accounts",
-                    "all",
-                    500,
-                    ex);
-            }
-        });
-    });
-}
-        public void MakeCall(string accountId, string destUri)
-        {
-            EnqueueTask(() =>
-            {
-                try
-                {
-                    ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-                    {
-                        if (!_accounts.TryGetValue(accountId, out var account))
-                        {
-                            throw new SipCallException(
-                                "Account not found",
-                                -1,
-                                "INVALID_ACCOUNT");
-                        }
-
-                        var call = new Sip.Call(account, _context, _loggerFactory);
-                        var prm = new CallOpParam(true);
-                        call.makeCall(destUri, prm);
-
-                        var sipCall = new SipCall
-                        {
-                            CallId = call.getId(),
-                            RemoteUri = destUri,
-                            Status = "INITIATED",
-                            SipAccountId = account.DbId
-                        };
-
-                        try
-                        {
-                            _context.SipCalls.Add(sipCall);
-                            _context.SaveChanges();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Failed to save call record");
-                            throw;
-                        }
-
-                        _activeCalls.TryAdd(call.getId(), (call, accountId));
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to make call to {DestUri}", destUri);
-                    throw new SipCallException(
-                        "Failed to initiate call",
-                        -1,
-                        "CALL_FAILED",
-                        ex);
-                }
-            });
-        }
-
-        public void HangupCall(int callId)
-        {
-            EnqueueTask(() =>
-            {
-                ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
-                {
-                    if (!_activeCalls.TryRemove(callId, out var callInfo))
-                    {
-                        _logger.LogWarning("Attempted to hang up non-existent call {CallId}", callId);
+                        await operation();
                         return;
                     }
-
-                    try
+                    catch (Exception ex) when (attempt < maxRetries)
                     {
-                        callInfo.Call.hangup(new CallOpParam());
-
-                        try
-                        {
-                            var dbCall = _context.SipCalls.First(c => c.CallId == callId);
-                            dbCall.EndedAt = DateTime.UtcNow;
-                            dbCall.Status = "TERMINATED";
-                            _context.SaveChanges();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Failed to update call record");
-                            throw;
-                        }
+                        _logger.LogWarning(ex, "Retry attempt {Attempt}/3", attempt + 1);
+                        await Task.Delay(1000 * (attempt + 1));
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error hanging up call {CallId}", callId);
-                        throw new SipCallException(
-                            "Failed to hang up call",
-                            callId,
-                            "HANGUP_FAILED",
-                            ex);
-                    }
-                });
-            });
+                }
+            }
         }
 
-        public void Dispose()
+        private class CircuitBreaker
         {
-            try
+            private readonly int _failureThreshold;
+            private readonly TimeSpan _resetTimeout;
+            private int _failureCount;
+            private DateTime _lastFailureTime = DateTime.MinValue;
+
+            public CircuitBreaker(int failureThreshold, TimeSpan resetTimeout)
             {
-                _cts.Cancel();
-                ThreadSafeEndpoint.Instance.InstanceEndpoint.libDestroy();
-                _taskQueue.CompleteAdding();
-                _workerTask.Wait();
+                _failureThreshold = failureThreshold;
+                _resetTimeout = resetTimeout;
             }
-            catch (Exception ex)
+
+            public bool CanExecute()
             {
-                _logger.LogError(ex, "Error during disposal");
+                if (_failureCount > _failureThreshold && 
+                   (DateTime.UtcNow - _lastFailureTime) < _resetTimeout)
+                {
+                    return false;
+                }
+                return true;
             }
-            finally
+
+            public void OnSuccess() => Reset();
+
+            public void OnFailure()
             {
-                GC.SuppressFinalize(this);
+                _failureCount++;
+                _lastFailureTime = DateTime.UtcNow;
+            }
+
+            private void Reset()
+            {
+                _failureCount = 0;
+                _lastFailureTime = DateTime.MinValue;
             }
         }
+        #endregion
+
+        #region Command Implementations
+        private interface ISipCommand
+        {
+            void Execute();
+            Task CompletionTask { get; }
+        }
+
+        private abstract class SipCommandBase : ISipCommand
+        {
+            private readonly TaskCompletionSource<bool> _tcs = new();
+            public Task CompletionTask => _tcs.Task;
+
+            public void Execute()
+            {
+                try
+                {
+                    ExecuteCore();
+                    _tcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    _tcs.SetException(ex);
+                }
+            }
+
+            protected abstract void ExecuteCore();
+        }
+
+        private class RegisterAccountCommand : SipCommandBase
+        {
+            private readonly SipAccount _account;
+            private readonly IServiceScopeFactory _scopeFactory;
+            private readonly ILoggerFactory _loggerFactory;
+            private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
+
+            public RegisterAccountCommand(
+                SipAccount account,
+                IServiceScopeFactory scopeFactory,
+                ILoggerFactory loggerFactory,
+                ConcurrentDictionary<string, Sip.Account> accounts)
+            {
+                _account = account;
+                _scopeFactory = scopeFactory;
+                _loggerFactory = loggerFactory;
+                _accounts = accounts;
+            }
+
+            protected override void ExecuteCore()
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+                // Update account status
+                _account.IsActive = false;
+                context.Update(_account);
+                context.SaveChanges();
+
+                // Configure SIP account
+                var acfg = new AccountConfig
+                {
+                    idUri = $"sip:{_account.Username}@{_account.Domain}",
+                    regConfig = { registrarUri = _account.RegistrarUri },
+                    mediaConfig = { transportConfig = { portRange = 500, port = 0 } }
+                };
+
+                acfg.sipConfig.authCreds.Add(new AuthCredInfo(
+                    "digest", "*", _account.Username, 0, _account.Password));
+
+                // Create and register account
+                var pjsipAccount = new Sip.Account(
+                    context, 
+                    _account.Id, 
+                    _loggerFactory, 
+                    _scopeFactory);
+
+                pjsipAccount.create(acfg);
+                _accounts[_account.AccountId] = pjsipAccount;
+            }
+        }
+private class ClearAccountsCommand : SipCommandBase
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
+    private readonly ILogger _logger;
+
+    public ClearAccountsCommand(
+        IServiceScopeFactory scopeFactory, 
+        ConcurrentDictionary<string, Sip.Account> accounts,
+        ILoggerFactory loggerFactory)
+    {
+        _scopeFactory = scopeFactory;
+        _accounts = accounts;
+        _logger = loggerFactory.CreateLogger<ClearAccountsCommand>();
+    }
+
+    protected override void ExecuteCore()
+    {
+        // Log the clear operation.
+        _logger.LogInformation("Clearing all SIP accounts.");
+
+        // Optionally, update database entries here if needed.
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+        
+        // Example: Mark all accounts as inactive in the database.
+        var dbAccounts = context.SipAccounts.ToList();
+        foreach (var account in dbAccounts)
+        {
+            account.IsActive = false;
+            context.Update(account);
+        }
+        context.SaveChanges();
+
+        // Clear the in-memory accounts.
+        _accounts.Clear();
+    }
+}
+        private class MakeCallCommand : SipCommandBase
+        {
+            private readonly string _accountId;
+            private readonly string _destUri;
+            private readonly IServiceScopeFactory _scopeFactory;
+            private readonly ILoggerFactory _loggerFactory;
+            private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls;
+            private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
+
+            public MakeCallCommand(
+                string accountId,
+                string destUri,
+                IServiceScopeFactory scopeFactory,
+                ConcurrentDictionary<int, (Sip.Call, string)> activeCalls,
+                ConcurrentDictionary<string, Sip.Account> accounts,
+                ILoggerFactory loggerFactory)
+            {
+                _accountId = accountId;
+                _destUri = destUri;
+                _scopeFactory = scopeFactory;
+                _activeCalls = activeCalls;
+                _accounts = accounts;
+            }
+
+            protected override void ExecuteCore()
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+                if (!_accounts.TryGetValue(_accountId, out var account))
+                    throw new SipCallException("Account not found", -1, "INVALID_ACCOUNT");
+
+                var call = new Sip.Call(account, context, _loggerFactory);
+                var prm = new CallOpParam(true);
+                call.makeCall(_destUri, prm);
+
+                var dbAccount = context.SipAccounts.Find(account.DbId) ?? 
+                    throw new InvalidOperationException($"Account {_accountId} not found");
+
+                var sipCall = new SipCall(
+                    callId: call.getId(),
+                    remoteUri: _destUri,
+                    status: "INITIATED",
+                    account: dbAccount
+                );
+
+                context.SipCalls.Add(sipCall);
+                context.SaveChanges();
+
+                _activeCalls.TryAdd(call.getId(), (call, _accountId));
+            }
+        }
+
+        private class HangupCallCommand : SipCommandBase
+        {
+            private readonly int _callId;
+            private readonly IServiceScopeFactory _scopeFactory;
+            private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls;
+            private readonly ILogger _logger;
+
+            public HangupCallCommand(
+                int callId,
+                IServiceScopeFactory scopeFactory,
+                ConcurrentDictionary<int, (Sip.Call, string)> activeCalls)
+            {
+                _callId = callId;
+                _scopeFactory = scopeFactory;
+                _activeCalls = activeCalls;
+                _logger = scopeFactory.CreateScope().ServiceProvider.GetRequiredService<ILogger<HangupCallCommand>>();
+            }
+
+            protected override void ExecuteCore()
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+                if (!_activeCalls.TryRemove(_callId, out var callInfo))
+                {
+                    _logger.LogWarning("Call {CallId} not found", _callId);
+                    return;
+                }
+
+                callInfo.Call.hangup(new CallOpParam());
+
+                var dbCall = context.SipCalls.FirstOrDefault(c => c.CallId == _callId);
+                if (dbCall != null)
+                {
+                    dbCall.EndedAt = DateTime.UtcNow;
+                    dbCall.Status = "TERMINATED";
+                    context.SaveChanges();
+                }
+            }
+        }
+        #endregion
+    }
+
+    public class SipServiceUnavailableException : Exception
+    {
+        public SipServiceUnavailableException() 
+            : base("SIP service is currently unavailable") { }
     }
 }

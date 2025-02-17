@@ -25,6 +25,7 @@ namespace PjSip.App.Migrations
 
                     b.Property<string>("AgentId")
                         .IsRequired()
+                        .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("AuralisEndpoint")
@@ -34,7 +35,7 @@ namespace PjSip.App.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                        .HasDefaultValueSql("DATETIME('now')");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
@@ -45,6 +46,7 @@ namespace PjSip.App.Migrations
 
                     b.Property<string>("Model")
                         .IsRequired()
+                        .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OllamaEndpoint")
@@ -63,7 +65,33 @@ namespace PjSip.App.Migrations
                     b.ToTable("AgentConfigs");
                 });
 
-            modelBuilder.Entity("SipAccount", b =>
+            modelBuilder.Entity("PjSip.App.Models.Message", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChatId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sender")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Messages");
+                });
+
+            modelBuilder.Entity("PjSip.App.Models.SipAccount", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -71,6 +99,7 @@ namespace PjSip.App.Migrations
 
                     b.Property<string>("AccountId")
                         .IsRequired()
+                        .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
@@ -103,7 +132,7 @@ namespace PjSip.App.Migrations
                     b.ToTable("SipAccounts");
                 });
 
-            modelBuilder.Entity("SipCall", b =>
+            modelBuilder.Entity("PjSip.App.Models.SipCall", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -117,6 +146,7 @@ namespace PjSip.App.Migrations
 
                     b.Property<string>("RemoteUri")
                         .IsRequired()
+                        .HasMaxLength(511)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("SipAccountId")
@@ -127,6 +157,7 @@ namespace PjSip.App.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
+                        .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -136,9 +167,9 @@ namespace PjSip.App.Migrations
                     b.ToTable("SipCalls");
                 });
 
-            modelBuilder.Entity("SipCall", b =>
+            modelBuilder.Entity("PjSip.App.Models.SipCall", b =>
                 {
-                    b.HasOne("SipAccount", "Account")
+                    b.HasOne("PjSip.App.Models.SipAccount", "Account")
                         .WithMany("Calls")
                         .HasForeignKey("SipAccountId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -147,7 +178,7 @@ namespace PjSip.App.Migrations
                     b.Navigation("Account");
                 });
 
-            modelBuilder.Entity("SipAccount", b =>
+            modelBuilder.Entity("PjSip.App.Models.SipAccount", b =>
                 {
                     b.Navigation("Calls");
                 });

@@ -8,6 +8,7 @@ using PjSip.App.Services;
 using PjSip.App.Exceptions;
 using PjSip.App.Data;
 using Microsoft.Extensions.DependencyInjection;
+using PjSip.App.Models;
 
 namespace PjSip.App.Sip
 {
@@ -42,13 +43,19 @@ namespace PjSip.App.Sip
 
                 try
                 {
-                    _context.SipCalls.Add(new SipCall
+                    var account = _context.SipAccounts.Find(DbId);
+                    if (account == null)
                     {
-                        CallId = prm.callId,
-                        Status = "INCOMING",
-                        SipAccountId = DbId,
-                        StartedAt = DateTime.UtcNow
-                    });
+                        throw new InvalidOperationException($"Account with ID {DbId} not found");
+                    }
+
+                    _context.SipCalls.Add(new SipCall(
+                        callId: prm.callId,
+                        remoteUri: prm.rdata.info,  // Assuming this contains the remote URI
+                        status: "INCOMING",
+                        account: account
+                    )); 
+                    
                     _context.SaveChanges();
                 }
                 catch (Exception ex)
@@ -56,7 +63,7 @@ namespace PjSip.App.Sip
                     _logger.LogError(ex, "Failed to save incoming call record");
                     throw;
                 }
-
+ 
                 try
                 {
                     var callOpParam = new CallOpParam { statusCode = pjsip_status_code.PJSIP_SC_OK };
@@ -81,45 +88,45 @@ namespace PjSip.App.Sip
 
 
 
-       public override void onRegState(OnRegStateParam prm)
-{
-    try
-    {
-        var isRegistered = prm.code == pjsip_status_code.PJSIP_SC_OK;
-        
-        Task.Run(async () =>
+        public override void onRegState(OnRegStateParam prm)
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
-            
-            // Add retry logic
-            for (int i = 0; i < 3; i++)
+            try
             {
-                try
+                var isRegistered = prm.code == pjsip_status_code.PJSIP_SC_OK;
+
+                Task.Run(async () =>
                 {
-                    var account = await context.SipAccounts.FindAsync(DbId);
-                    if (account != null)
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+                    // Add retry logic
+                    for (int i = 0; i < 3; i++)
                     {
-                        account.IsActive = isRegistered;
-                        await context.SaveChangesAsync();
-                        _logger.LogInformation("Account {DbId} status updated to {Status}", DbId, isRegistered);
-                        return;
+                        try
+                        {
+                            var account = await context.SipAccounts.FindAsync(DbId);
+                            if (account != null)
+                            {
+                                account.IsActive = isRegistered;
+                                await context.SaveChangesAsync();
+                                _logger.LogInformation("Account {DbId} status updated to {Status}", DbId, isRegistered);
+                                return;
+                            }
+                            await Task.Delay(500); // Wait before retry
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to update account status for {DbId}", DbId);
+                            if (i == 2) throw;
+                        }
                     }
-                    await Task.Delay(500); // Wait before retry
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to update account status for {DbId}", DbId);
-                    if (i == 2) throw;
-                }
+                    _logger.LogError("Account {DbId} not found after retries", DbId);
+                });
             }
-            _logger.LogError("Account {DbId} not found after retries", DbId);
-        });
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error handling registration state change for account {DbId}", DbId);
-    }
-}
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling registration state change for account {DbId}", DbId);
+            }
+        }
     }
 }

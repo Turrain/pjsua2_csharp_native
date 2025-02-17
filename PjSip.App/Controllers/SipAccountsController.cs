@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using PjSip.App.Services;
 using PjSip.App.Exceptions;
+using PjSip.App.Models;
 
 namespace PjSip.App.Controllers
 {

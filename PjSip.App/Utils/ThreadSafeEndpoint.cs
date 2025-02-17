@@ -11,7 +11,7 @@ namespace PjSip.App.Utils
         private static readonly object _staticInitLock = new();
         private readonly Endpoint _endpoint;
         private readonly ILogger _logger;
-        private readonly AsyncLocal<bool> _threadRegistered = new();
+     private readonly ThreadLocal<bool> _threadRegistered = new();
         private readonly object _initLock = new();
         private bool _isInitialized;
 
@@ -82,26 +82,28 @@ namespace PjSip.App.Utils
             action();
         }
 
-        private void EnsureThreadRegistered()
-        {
-            if (_threadRegistered.Value) return;
+         public void EnsureThreadRegistered()
+    {
+        if (_threadRegistered.Value) return;
 
-            try
+        try
+        {
+            if (!_endpoint.libIsThreadRegistered())
             {
-                if (!_endpoint.libIsThreadRegistered())
-                {
-                    var threadDesc = $"Thread-{Thread.CurrentThread.ManagedThreadId}";
-                    _endpoint.libRegisterThread(threadDesc);
-                    _threadRegistered.Value = true;
-                    _logger.LogDebug("Registered thread {ThreadId} with PJSIP", threadDesc);
-                }
+                var threadDesc = $"Thread-{Thread.CurrentThread.ManagedThreadId}";
+                _endpoint.libRegisterThread(threadDesc);
+                _logger.LogDebug("Registered thread {ThreadId} with PJSIP", threadDesc);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to register thread with PJSIP");
-                throw;
-            }
+            // Mark the thread as registered in ThreadLocal regardless of libIsThreadRegistered
+            // to avoid repeated checks for the same thread.
+            _threadRegistered.Value = true;
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to register thread with PJSIP");
+            throw;
+        }
+    }
 
         public Endpoint InstanceEndpoint => _endpoint;
 

@@ -17,13 +17,13 @@ namespace PjSip.App.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    AgentId = table.Column<string>(type: "TEXT", nullable: false),
+                    AgentId = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
                     LLMConfig = table.Column<string>(type: "TEXT", nullable: false),
                     AuralisEndpoint = table.Column<string>(type: "TEXT", nullable: false),
                     WhisperEndpoint = table.Column<string>(type: "TEXT", nullable: false),
                     OllamaEndpoint = table.Column<string>(type: "TEXT", nullable: false),
-                    Model = table.Column<string>(type: "TEXT", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    Model = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "DATETIME('now')"),
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
                     IsEnabled = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
@@ -33,12 +33,28 @@ namespace PjSip.App.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Messages",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    ChatId = table.Column<int>(type: "INTEGER", nullable: false),
+                    Sender = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
+                    Content = table.Column<string>(type: "TEXT", nullable: false),
+                    Timestamp = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Messages", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "SipAccounts",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    AccountId = table.Column<string>(type: "TEXT", nullable: false),
+                    AccountId = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
                     Username = table.Column<string>(type: "TEXT", nullable: false),
                     Password = table.Column<string>(type: "TEXT", nullable: false),
                     Domain = table.Column<string>(type: "TEXT", nullable: false),
@@ -58,10 +74,10 @@ namespace PjSip.App.Migrations
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     CallId = table.Column<int>(type: "INTEGER", nullable: false),
-                    RemoteUri = table.Column<string>(type: "TEXT", nullable: false),
+                    RemoteUri = table.Column<string>(type: "TEXT", maxLength: 511, nullable: false),
                     StartedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                     EndedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
-                    Status = table.Column<string>(type: "TEXT", nullable: false),
+                    Status = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false),
                     SipAccountId = table.Column<int>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
@@ -92,6 +108,9 @@ namespace PjSip.App.Migrations
         {
             migrationBuilder.DropTable(
                 name: "AgentConfigs");
+
+            migrationBuilder.DropTable(
+                name: "Messages");
 
             migrationBuilder.DropTable(
                 name: "SipCalls");

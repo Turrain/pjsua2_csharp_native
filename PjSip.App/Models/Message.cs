@@ -1,24 +1,26 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 
-namespace ChatApi.Models
+namespace PjSip.App.Models
 {
- public class Message
+public class Message
 {
-    [Key]
     public int Id { get; set; }
-    
-    [Required]
-    public int ChatId { get; set; }
-    
-    [Required]
-    [MaxLength(50)]
-    public string Sender { get; set; }
-    
-    [Required]
-    public string Content { get; set; }
-    
-    [Required]
+    public required int ChatId { get; set; }
+    public required string Sender { get; set; }
+    public required string Content { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+       public Message() { }
+
+    [SetsRequiredMembers]
+    public Message(int chatId, string sender, string content)
+    {
+        ChatId = chatId;
+        Sender = sender;
+        Content = content;
+    }
 }
+
 }
