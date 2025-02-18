@@ -24,5 +24,7 @@
      <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     
   </PropertyGroup>
-
+<Target Name="BuildFrontend" BeforeTargets="Build">
+  <Exec Command="cd wwwroot &amp;&amp; bun install &amp;&amp; bun run build" />
+</Target>
 </Project>

@@ -1,0 +1,76 @@
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.error {
+  background-color: #fee;
+  border: 1px solid #faa;
+  color: #c00;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+
+.registerForm {
+  margin-bottom: 40px;
+}
+
+.registerForm form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.registerForm form div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.registerForm input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.accountsList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.accountCard {
+  padding: 15px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.dialForm {
+  margin-top: 10px;
+}
+
+.currentCall {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f0f8ff;
+}
+
+.hangupButton {
+  margin-top: 10px;
+  background-color: #c00;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.hangupButton:hover {
+  background-color: #a00;
+}
