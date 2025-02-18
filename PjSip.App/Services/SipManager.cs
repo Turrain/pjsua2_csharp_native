@@ -42,11 +42,11 @@ namespace PjSip.App.Services
         {
             _policies.ExecuteSipOperation(() =>
             {
-                var transportConfig = new TransportConfig 
-                { 
-                    port = 18090, 
-                    portRange = 50, 
-                    randomizePort = true 
+                var transportConfig = new TransportConfig
+                {
+                    port = 18090,
+                    portRange = 50,
+                    randomizePort = true
                 };
 
                 ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
@@ -54,15 +54,15 @@ namespace PjSip.App.Services
                     ThreadSafeEndpoint.Instance.InstanceEndpoint.transportCreate(
                         pjsip_transport_type_e.PJSIP_TRANSPORT_UDP,
                         transportConfig);
-                    
+
                     ThreadSafeEndpoint.Instance.InstanceEndpoint.audDevManager().setNullDev();
                 });
-                
+
                 return true;
             }, "PJSIP Initialization");
         }
 
-        private void StartCommandProcessor() => 
+        private void StartCommandProcessor() =>
             Task.Run(ProcessCommandsAsync);
 
         private async Task ProcessCommandsAsync()
@@ -71,21 +71,21 @@ namespace PjSip.App.Services
             {
                 await _policies.ExecuteWithRetry(async () =>
                 {
-                    await Task.Run(() => 
+                    await Task.Run(() =>
                         ThreadSafeEndpoint.Instance.ExecuteSafely(command.Execute));
                 });
             }
         }
 
-        public Task RegisterAccountAsync(SipAccount account) => 
+        public Task RegisterAccountAsync(SipAccount account) =>
             ExecuteCommand(new RegisterAccountCommand(
                 account, _serviceScopeFactory, _loggerFactory, _accounts));
 
-        public Task MakeCallAsync(string accountId, string destUri) => 
+        public Task MakeCallAsync(string accountId, string destUri) =>
             ExecuteCommand(new MakeCallCommand(
                 accountId, destUri, _serviceScopeFactory, _activeCalls, _accounts, _loggerFactory));
 
-        public Task HangupCallAsync(int callId) => 
+        public Task HangupCallAsync(int callId) =>
             ExecuteCommand(new HangupCallCommand(callId, _serviceScopeFactory, _activeCalls));
         public Task ClearAccountsAsync() =>
     ExecuteCommand(new ClearAccountsCommand(_serviceScopeFactory, _accounts, _loggerFactory));
@@ -163,7 +163,7 @@ namespace PjSip.App.Services
 
             public bool CanExecute()
             {
-                if (_failureCount > _failureThreshold && 
+                if (_failureCount > _failureThreshold &&
                    (DateTime.UtcNow - _lastFailureTime) < _resetTimeout)
                 {
                     return false;
@@ -257,53 +257,53 @@ namespace PjSip.App.Services
 
                 // Create and register account
                 var pjsipAccount = new Sip.Account(
-                    context, 
-                    _account.Id, 
-                    _loggerFactory, 
+                    context,
+                    _account.Id,
+                    _loggerFactory,
                     _scopeFactory);
 
                 pjsipAccount.create(acfg);
                 _accounts[_account.AccountId] = pjsipAccount;
             }
         }
-private class ClearAccountsCommand : SipCommandBase
-{
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
-    private readonly ILogger _logger;
-
-    public ClearAccountsCommand(
-        IServiceScopeFactory scopeFactory, 
-        ConcurrentDictionary<string, Sip.Account> accounts,
-        ILoggerFactory loggerFactory)
-    {
-        _scopeFactory = scopeFactory;
-        _accounts = accounts;
-        _logger = loggerFactory.CreateLogger<ClearAccountsCommand>();
-    }
-
-    protected override void ExecuteCore()
-    {
-        // Log the clear operation.
-        _logger.LogInformation("Clearing all SIP accounts.");
-
-        // Optionally, update database entries here if needed.
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
-        
-        // Example: Mark all accounts as inactive in the database.
-        var dbAccounts = context.SipAccounts.ToList();
-        foreach (var account in dbAccounts)
+        private class ClearAccountsCommand : SipCommandBase
         {
-            account.IsActive = false;
-            context.Update(account);
-        }
-        context.SaveChanges();
+            private readonly IServiceScopeFactory _scopeFactory;
+            private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
+            private readonly ILogger _logger;
 
-        // Clear the in-memory accounts.
-        _accounts.Clear();
-    }
-}
+            public ClearAccountsCommand(
+                IServiceScopeFactory scopeFactory,
+                ConcurrentDictionary<string, Sip.Account> accounts,
+                ILoggerFactory loggerFactory)
+            {
+                _scopeFactory = scopeFactory;
+                _accounts = accounts;
+                _logger = loggerFactory.CreateLogger<ClearAccountsCommand>();
+            }
+
+            protected override void ExecuteCore()
+            {
+                // Log the clear operation.
+                _logger.LogInformation("Clearing all SIP accounts.");
+
+                // Optionally, update database entries here if needed.
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+                // Example: Mark all accounts as inactive in the database.
+                var dbAccounts = context.SipAccounts.ToList();
+                foreach (var account in dbAccounts)
+                {
+                    account.IsActive = false;
+                    context.Update(account);
+                }
+                context.SaveChanges();
+
+                // Clear the in-memory accounts.
+                _accounts.Clear();
+            }
+        }
         private class MakeCallCommand : SipCommandBase
         {
             private readonly string _accountId;
@@ -326,6 +326,7 @@ private class ClearAccountsCommand : SipCommandBase
                 _scopeFactory = scopeFactory;
                 _activeCalls = activeCalls;
                 _accounts = accounts;
+                _loggerFactory = loggerFactory;
             }
 
             protected override void ExecuteCore()
@@ -336,11 +337,11 @@ private class ClearAccountsCommand : SipCommandBase
                 if (!_accounts.TryGetValue(_accountId, out var account))
                     throw new SipCallException("Account not found", -1, "INVALID_ACCOUNT");
 
-                var call = new Sip.Call(account, context, _loggerFactory);
+                 var call = new Sip.Call(account, -1, _loggerFactory, _scopeFactory);
                 var prm = new CallOpParam(true);
                 call.makeCall(_destUri, prm);
 
-                var dbAccount = context.SipAccounts.Find(account.DbId) ?? 
+                var dbAccount = context.SipAccounts.Find(account.DbId) ??
                     throw new InvalidOperationException($"Account {_accountId} not found");
 
                 var sipCall = new SipCall(
@@ -402,7 +403,7 @@ private class ClearAccountsCommand : SipCommandBase
 
     public class SipServiceUnavailableException : Exception
     {
-        public SipServiceUnavailableException() 
+        public SipServiceUnavailableException()
             : base("SIP service is currently unavailable") { }
     }
 }

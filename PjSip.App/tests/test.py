@@ -1,59 +1,60 @@
 import unittest
 import requests
 import json
+import time
 
 class TestSipCallController(unittest.TestCase):
 
     BASE_URL = "http://localhost:5000/api"  # Replace with your API's base URL
-    # def test_clear_all_accounts(self):
-    #     """Test clearing all registered SIP accounts."""
-    #     endpoint = f"{self.BASE_URL}/SipAccounts"
-    #     response = requests.delete(endpoint)
+    def test_clear_all_accounts(self):
+        """Test clearing all registered SIP accounts."""
+        endpoint = f"{self.BASE_URL}/SipAccounts"
+        response = requests.delete(endpoint)
 
-    #     self.assertEqual(response.status_code, 200)
-    #     data = response.json()
-    #     self.assertIn("message", data)
-    #     self.assertEqual(data["message"], "All SIP accounts have been deleted")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("message", data)
+        self.assertEqual(data["message"], "All SIP accounts have been deleted")
         
-    # def test_register_account_success(self):
-    #     """Test successful account registration."""
-    #     endpoint = f"{self.BASE_URL}/SipAccounts"
-    #     payload = {
-    #         "username": "1000",
-    #         "password": "1000",
-    #         "domain": "localhost",
-    #         "registrarUri": "sip:localhost"
-    #     }
-    #     headers = {'Content-Type': 'application/json'}
-    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+    def test_register_account_success(self):
+        """Test successful account registration."""
+        endpoint = f"{self.BASE_URL}/SipAccounts"
+        payload = {
+            "username": "1000",
+            "password": "1000",
+            "domain": "localhost",
+            "registrarUri": "sip:localhost"
+        }
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
 
-    #     self.assertEqual(response.status_code, 200)
-    #     data = response.json()
-    #     self.assertIn("accountId", data)
-    #     self.assertEqual(data["username"], "1000")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("accountId", data)
+        self.assertEqual(data["username"], "1000")
 
-    #     # Store the account ID for later use
-    #     self.account_id = data["accountId"]
+        # Store the account ID for later use
+        self.account_id = data["accountId"]
 
-    # def test_register_account_success2(self):
-    #     """Test successful account registration."""
-    #     endpoint = f"{self.BASE_URL}/SipAccounts"
-    #     payload = {
-    #         "username": "1001",
-    #         "password": "1001",
-    #         "domain": "localhost",
-    #         "registrarUri": "sip:localhost"
-    #     }
-    #     headers = {'Content-Type': 'application/json'}
-    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+    def test_register_account_success2(self):
+        """Test successful account registration."""
+        endpoint = f"{self.BASE_URL}/SipAccounts"
+        payload = {
+            "username": "1001",
+            "password": "1001",
+            "domain": "localhost",
+            "registrarUri": "sip:localhost"
+        }
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
 
-    #     self.assertEqual(response.status_code, 200)
-    #     data = response.json()
-    #     self.assertIn("accountId", data)
-    #     self.assertEqual(data["username"], "1001")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("accountId", data)
+        self.assertEqual(data["username"], "1001")
 
-    #     # Store the account ID for later use
-    #     self.account_id = data["accountId"]
+        # Store the account ID for later use
+        self.account_id = data["accountId"]
 
         
     def test_get_all_accounts(self):
@@ -96,24 +97,28 @@ class TestSipCallController(unittest.TestCase):
         self.assertEqual(found_account["username"], "1000")
         self.assertEqual(found_account["domain"], "localhost")
 
-    # def test_make_call_success(self):
-    #     """Test making a call successfully."""
-    #     # First, register an account (assuming registration works)
-    #     self.test_register_account_success() # Call the registration test to ensure an account exists
+    def test_get_all_accounts2(self):
+        time.sleep(5)
+        self.test_get_all_accounts()
+    def test_make_call_success(self):
+        """Test making a call successfully."""
+        # First, register an account (assuming registration works)
+        self.test_register_account_success() # Call the registration test to ensure an account exists
 
-    #     endpoint = f"{self.BASE_URL}/SipCall"
-    #     payload = {
-    #         "accountId": self.account_id,
-    #         "destination": "sip:destination@example.com"
-    #     }
-    #     headers = {'Content-Type': 'application/json'}
-    #     response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
+        endpoint = f"{self.BASE_URL}/SipCall"
+        payload = {
+            "accountId": self.account_id ,
+            "destination": "sip:1001@localhost"
+        }
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(endpoint, data=json.dumps(payload), headers=headers)
 
-    #     self.assertEqual(response.status_code, 200)
-    #     data = response.json()
-    #     self.assertIn("callId", data)
-    #     self.assertEqual(data["status"], "EARLY")  # Or whatever initial status you expect
-    #     self.call_id = data["callId"] # Store call id for later tests
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        print(data)
+        self.assertIn("callId", data)
+        self.assertEqual(data["status"], "EARLY")  # Or whatever initial status you expect
+        self.call_id = data["callId"] # Store call id for later tests
 
     # def test_make_call_failure_invalid_account(self):
     #     """Test making a call with an invalid account ID."""
@@ -178,4 +183,64 @@ class TestSipCallController(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    test_aliases = {
+        "clear": "test_clear_all_accounts",
+        "reg": "test_register_account_success",
+        "reg2": "test_register_account_success2",
+        "get_all": "test_get_all_accounts",
+        "get_all2": "test_get_all_accounts2",
+        "call": "test_make_call_success",
+        # "call_fail": "test_make_call_failure_invalid_account",
+        # "hangup": "test_hangup_call_success",
+        # "hangup_fail": "test_hangup_call_invalid_call_id",
+        # "status": "test_get_call_status_success",
+        # "status_fail": "test_get_call_status_invalid_call_id"
+    }
+    suite = unittest.TestSuite()
+    tests = [
+        TestSipCallController(test_name)
+        for test_name in unittest.TestLoader().getTestCaseNames(TestSipCallController)
+    ]
+    suite.addTests(tests)
+
+    # Create a runner and run the tests
+    runner = unittest.TextTestRunner()
+   # runner.run(suite)
+    while True:
+        print("\nAvailable tests:")
+        for i, test in enumerate(tests):
+            print(f"{i + 1}. {test._testMethodName}")
+        
+        print("\nAliases:")
+        for alias, test_name in test_aliases.items():
+             print(f"  {alias}: {test_name}")
+
+        print("\n0. Run all tests")
+        print("Enter the number of the test to run (or 0 to run all, alias or 'q' to quit):")
+
+        choice = input("> ")
+
+        if choice.lower() == 'q':
+            break
+        
+        # Check if the choice is an alias
+        if choice in test_aliases:
+            test_name = test_aliases[choice]
+            selected_test = next((t for t in tests if t._testMethodName == test_name), None)
+            if selected_test:
+                runner.run(unittest.TestSuite([selected_test]))
+            else:
+                print("Invalid test alias.")
+            continue
+
+        try:
+            choice = int(choice)
+
+            if choice == 0:
+                runner.run(suite)
+            elif 1 <= choice <= len(tests):
+                runner.run(unittest.TestSuite([tests[choice - 1]]))
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input. Please enter a number or 'q'.")
