@@ -11,7 +11,7 @@ using PjSip.App.Data;
 namespace PjSip.App.Migrations
 {
     [DbContext(typeof(SipDbContext))]
-    [Migration("20250217165706_InitialCreate")]
+    [Migration("20250219100621_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -31,10 +31,6 @@ namespace PjSip.App.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuralisEndpoint")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
@@ -43,24 +39,10 @@ namespace PjSip.App.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("LLMConfig")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OllamaEndpoint")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int>("Priority")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("WhisperEndpoint")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -105,6 +87,9 @@ namespace PjSip.App.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("AgentId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -131,6 +116,8 @@ namespace PjSip.App.Migrations
 
                     b.HasIndex("AccountId")
                         .IsUnique();
+
+                    b.HasIndex("AgentId");
 
                     b.ToTable("SipAccounts");
                 });
@@ -168,6 +155,125 @@ namespace PjSip.App.Migrations
                     b.HasIndex("SipAccountId");
 
                     b.ToTable("SipCalls");
+                });
+
+            modelBuilder.Entity("PjSip.App.Models.AgentConfig", b =>
+                {
+                    b.OwnsOne("PjSip.App.Models.AgentConfig+AuralisConfig", "Auralis", b1 =>
+                        {
+                            b1.Property<int>("AgentConfigId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("ApiKey")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<bool>("EnableAnalytics")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("Endpoint")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<int>("Timeout")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("INTEGER")
+                                .HasDefaultValue(30);
+
+                            b1.HasKey("AgentConfigId");
+
+                            b1.ToTable("AgentConfigs");
+
+                            b1.WithOwner()
+                                .HasForeignKey("AgentConfigId");
+                        });
+
+                    b.OwnsOne("PjSip.App.Models.AgentConfig+LLMConfig", "LLM", b1 =>
+                        {
+                            b1.Property<int>("AgentConfigId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<int>("MaxTokens")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("INTEGER")
+                                .HasDefaultValue(512);
+
+                            b1.Property<string>("Model")
+                                .IsRequired()
+                                .HasMaxLength(255)
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("OllamaEndpoint")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Parameters")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<float>("Temperature")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("REAL")
+                                .HasDefaultValue(0.7f);
+
+                            b1.HasKey("AgentConfigId");
+
+                            b1.ToTable("AgentConfigs");
+
+                            b1.WithOwner()
+                                .HasForeignKey("AgentConfigId");
+                        });
+
+                    b.OwnsOne("PjSip.App.Models.AgentConfig+WhisperConfig", "Whisper", b1 =>
+                        {
+                            b1.Property<int>("AgentConfigId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<bool>("EnableTranslation")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("Endpoint")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Language")
+                                .IsRequired()
+                                .ValueGeneratedOnAdd()
+                                .HasMaxLength(5)
+                                .HasColumnType("TEXT")
+                                .HasDefaultValue("en");
+
+                            b1.Property<int>("Timeout")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("INTEGER")
+                                .HasDefaultValue(30);
+
+                            b1.HasKey("AgentConfigId");
+
+                            b1.ToTable("AgentConfigs");
+
+                            b1.WithOwner()
+                                .HasForeignKey("AgentConfigId");
+                        });
+
+                    b.Navigation("Auralis")
+                        .IsRequired();
+
+                    b.Navigation("LLM")
+                        .IsRequired();
+
+                    b.Navigation("Whisper")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PjSip.App.Models.SipAccount", b =>
+                {
+                    b.HasOne("PjSip.App.Models.AgentConfig", "Agent")
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
                 });
 
             modelBuilder.Entity("PjSip.App.Models.SipCall", b =>

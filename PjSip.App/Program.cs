@@ -50,9 +50,8 @@ ThreadSafeEndpoint.Initialize(tlogger);
 
 // Application Services
 builder.Services.AddScoped<SipManagerService>();
-builder.Services.AddScoped<AgentManager>();
 builder.Services.AddSingleton<SipManager>();
-
+builder.Services.AddScoped<AgentConfigService>();
 var app = builder.Build();
 
 // Middleware Pipeline

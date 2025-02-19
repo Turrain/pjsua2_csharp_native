@@ -35,18 +35,46 @@ public class SipDbContext : DbContext
             entity.Property(c => c.Status).HasMaxLength(50).IsRequired();
         });
 
-        // AgentConfig Configuration
-      modelBuilder.Entity<AgentConfig>(entity =>
-{
-    entity.Property(a => a.LLMConfig)
-        .HasConversion(
-            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-            v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null)!);
+        // AgentConfig Configuration using Owned Entities
+        modelBuilder.Entity<AgentConfig>(entity =>
+        {
+            entity.Property(a => a.AgentId).HasMaxLength(255).IsRequired();
+            entity.Property(a => a.CreatedAt).HasDefaultValueSql("DATETIME('now')");
 
-    entity.Property(a => a.CreatedAt).HasDefaultValueSql("DATETIME('now')");
-    entity.Property(a => a.AgentId).HasMaxLength(255).IsRequired();
-    entity.Property(a => a.Model).HasMaxLength(255).IsRequired();
-});
+            entity.OwnsOne(a => a.LLM, llm =>
+            {
+                llm.Property(p => p.Model).HasMaxLength(255).IsRequired();
+                llm.Property(p => p.Temperature).HasDefaultValue(0.7f);
+                llm.Property(p => p.MaxTokens).HasDefaultValue(512);
+                llm.Property(p => p.OllamaEndpoint).IsRequired();
+                  llm.Property(p => p.Parameters)
+                .HasColumnType("TEXT")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null),
+                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions)null));
+                // If you need to persist Parameters, consider configuring a conversion:
+                // llm.Property(p => p.Parameters)
+                //     .HasConversion(
+                //         v => JsonSerializer.Serialize(v, null),
+                //         v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, null));
+            });
+
+            entity.OwnsOne(a => a.Whisper, whisper =>
+            {
+                whisper.Property(p => p.Endpoint).IsRequired();
+                whisper.Property(p => p.Language).HasMaxLength(5).HasDefaultValue("en");
+                whisper.Property(p => p.Timeout).HasDefaultValue(30);
+            });
+
+            entity.OwnsOne(a => a.Auralis, auralis =>
+            {
+                auralis.Property(p => p.Endpoint).IsRequired();
+                auralis.Property(p => p.ApiKey).IsRequired();
+                auralis.Property(p => p.Timeout).HasDefaultValue(30);
+                // auralis.Property(p => p.EnableAnalytics); // defaults to false if not set
+            });
+        });
+
         // Message Configuration
         modelBuilder.Entity<Message>(entity =>
         {
@@ -58,7 +86,7 @@ public class SipDbContext : DbContext
 
 public class SipDbContextFactory : IDesignTimeDbContextFactory<SipDbContext>
 {
-     public SipDbContext CreateDbContext(string[] args)
+    public SipDbContext CreateDbContext(string[] args)
     {
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())

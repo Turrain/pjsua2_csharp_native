@@ -18,13 +18,22 @@ namespace PjSip.App.Migrations
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     AgentId = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
-                    LLMConfig = table.Column<string>(type: "TEXT", nullable: false),
-                    AuralisEndpoint = table.Column<string>(type: "TEXT", nullable: false),
-                    WhisperEndpoint = table.Column<string>(type: "TEXT", nullable: false),
-                    OllamaEndpoint = table.Column<string>(type: "TEXT", nullable: false),
-                    Model = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
+                    LLM_Model = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
+                    LLM_Temperature = table.Column<float>(type: "REAL", nullable: false, defaultValue: 0.7f),
+                    LLM_MaxTokens = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 512),
+                    LLM_OllamaEndpoint = table.Column<string>(type: "TEXT", nullable: false),
+                    LLM_Parameters = table.Column<string>(type: "TEXT", nullable: true),
+                    Whisper_Endpoint = table.Column<string>(type: "TEXT", nullable: false),
+                    Whisper_Language = table.Column<string>(type: "TEXT", maxLength: 5, nullable: false, defaultValue: "en"),
+                    Whisper_Timeout = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 30),
+                    Whisper_EnableTranslation = table.Column<bool>(type: "INTEGER", nullable: false),
+                    Auralis_Endpoint = table.Column<string>(type: "TEXT", nullable: false),
+                    Auralis_ApiKey = table.Column<string>(type: "TEXT", nullable: false),
+                    Auralis_Timeout = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 30),
+                    Auralis_EnableAnalytics = table.Column<bool>(type: "INTEGER", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "DATETIME('now')"),
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    Priority = table.Column<int>(type: "INTEGER", nullable: false),
                     IsEnabled = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
@@ -60,11 +69,18 @@ namespace PjSip.App.Migrations
                     Domain = table.Column<string>(type: "TEXT", nullable: false),
                     RegistrarUri = table.Column<string>(type: "TEXT", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false)
+                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
+                    AgentId = table.Column<int>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_SipAccounts", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SipAccounts_AgentConfigs_AgentId",
+                        column: x => x.AgentId,
+                        principalTable: "AgentConfigs",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -98,6 +114,11 @@ namespace PjSip.App.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_SipAccounts_AgentId",
+                table: "SipAccounts",
+                column: "AgentId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_SipCalls_SipAccountId",
                 table: "SipCalls",
                 column: "SipAccountId");
@@ -107,9 +128,6 @@ namespace PjSip.App.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "AgentConfigs");
-
-            migrationBuilder.DropTable(
                 name: "Messages");
 
             migrationBuilder.DropTable(
@@ -117,6 +135,9 @@ namespace PjSip.App.Migrations
 
             migrationBuilder.DropTable(
                 name: "SipAccounts");
+
+            migrationBuilder.DropTable(
+                name: "AgentConfigs");
         }
     }
 }

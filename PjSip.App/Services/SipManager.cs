@@ -261,6 +261,8 @@ namespace PjSip.App.Services
                     _account.Id,
                     _loggerFactory,
                     _scopeFactory);
+                    
+                pjsipAccount.Agent = _account.Agent;
 
                 pjsipAccount.create(acfg);
                 _accounts[_account.AccountId] = pjsipAccount;

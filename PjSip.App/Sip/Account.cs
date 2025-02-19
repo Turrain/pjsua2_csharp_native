@@ -17,7 +17,7 @@ namespace PjSip.App.Sip
         private readonly ILoggerFactory _loggerFactory;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly int _dbId;
-
+        public AgentConfig Agent { get; set; }
         public int DbId => _dbId;
 
         public Account(SipDbContext context, int dbId, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)

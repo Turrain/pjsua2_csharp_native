@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PjSip.App.Services;
 using PjSip.App.Exceptions;
 using PjSip.App.Models;
+using static PjSip.App.Models.AgentConfig;
 
 namespace PjSip.App.Controllers
 {
@@ -87,7 +88,25 @@ namespace PjSip.App.Controllers
                     Password = request.Password,
                     Domain = request.Domain,
                     RegistrarUri = request.RegistrarUri,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Agent = new AgentConfig
+                    {
+                        AgentId = Guid.NewGuid().ToString(),
+                        LLM = new LLMConfig
+                        {
+                            Model = "gpt-3.5-turbo", // Required
+                            OllamaEndpoint = "http://localhost:11434" // Required
+                        },
+                        Whisper = new WhisperConfig
+                        {
+                            Endpoint = "http://localhost:9000" // Required
+                        },
+                        Auralis = new AuralisConfig
+                        {
+                            Endpoint = "http://localhost:8000", // Required
+                            ApiKey = "your-api-key-here" // Required
+                        }
+                    }
                 };
 
                 var registeredAccount = await _sipManager.RegisterAccountAsync(account);
