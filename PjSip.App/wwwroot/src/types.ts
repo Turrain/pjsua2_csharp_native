@@ -34,7 +34,7 @@ export interface AgentConfig {
 
 // Existing types
 export interface SipAccount {
-  id: string;
+  accountId: string; // Changed from id to accountId
   username: string;
   domain: string;
   registrarUri: string;

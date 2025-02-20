@@ -21,7 +21,7 @@ namespace PjSip.App.Services
         private readonly ILoggerFactory _loggerFactory;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly SipOperationPolicies _policies;
-        private readonly ConcurrentDictionary<string, Sip.Account> _accounts = new();
+        public  readonly ConcurrentDictionary<string, Sip.Account> _accounts = new();
         private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls = new();
 
         public SipManager(

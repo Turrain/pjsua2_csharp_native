@@ -23,8 +23,27 @@ namespace PjSip.App.Controllers
             _sipManager = sipManager;
             _logger = logger;
         }
-
-        public class RegisterAccountRequest
+public class UpdateAccountAgentRequest
+{
+    public required int AgentConfigId { get; set; }
+}
+[HttpPut("{accountId}/agent")]
+public async Task<IActionResult> UpdateAccountAgent(string accountId, [FromBody] UpdateAccountAgentRequest request)
+{
+    try
+    {
+        var account = await _sipManager.UpdateAccountAgentAsync(accountId, request.AgentConfigId);
+        return Ok(account);
+    }
+    catch (SipRegistrationException ex)
+    {
+        return NotFound(new { message = ex.Message });
+    }
+    catch (ArgumentException ex)
+    {
+        return BadRequest(new { message = ex.Message });
+    }
+}        public class RegisterAccountRequest
         {
             public string Username { get; set; }
             public string Password { get; set; }

@@ -2,7 +2,7 @@
 import { SipAccount, Call, AgentConfig } from '../types';
 
 export const api = {
-  async registerAccount(account: Omit<SipAccount, 'id' | 'isActive'> & { password: string }) {
+  async registerAccount(account: Omit<SipAccount, 'accountId' | 'isActive'> & { password: string }) {
     const response = await fetch('/api/SipAccounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -20,7 +20,15 @@ export const api = {
     if (!response.ok) throw new Error('Failed to create agent config');
     return response.json();
   },
-
+  async updateAccountAgent(accountId: string, agentConfigId: number) {
+    const response = await fetch(`/api/SipAccounts/${accountId}/agent`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentConfigId })
+    });
+    if (!response.ok) throw new Error('Failed to update account agent');
+    return response.json() as Promise<SipAccount>;
+},
   async getAgentConfigs() {
     const response = await fetch('/api/AgentConfig');
     if (!response.ok) throw new Error('Failed to fetch agent configs');
