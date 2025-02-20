@@ -42,10 +42,10 @@ export interface SipAccount {
   agent?: AgentConfig;
 }
   
-  export type Call = {
-    callId: number;
-    status: string;
-    remoteUri: string;
-    accountId: string;
-    startTime: string;
-  };
+export interface Call {
+  callId: number;
+  status: string;
+  startedAt: string;
+  endedAt?: string;
+  remoteUri: string;
+}

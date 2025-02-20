@@ -118,4 +118,28 @@ app.UseExceptionHandler(exceptionHandlerApp =>
     });
 });
 
+// using var accountScope = app.Services.CreateScope();
+// var accountProvider = accountScope.ServiceProvider;
+
+// var accountDbContext = accountProvider.GetRequiredService<SipDbContext>();
+// // Use the pjsua2 SIP manager (not your DB service) to register accounts.
+// var sipManager = accountProvider.GetRequiredService<SipManager>();
+
+// try
+// {
+//     // Load all SIP account records from your database.
+//     var accountsToRegister = await accountDbContext.SipAccounts.ToListAsync();
+    
+//     foreach (var account in accountsToRegister)
+//     {
+//         // Enqueue the RegisterAccountCommand that uses your pjsua2 logic.
+//         await sipManager.RegisterAccountAsync(account);
+//         Console.WriteLine($"Re-registered SIP account {account.AccountId} to pjsua2");
+//     }
+// }
+// catch (Exception ex)
+// {
+//     Console.Error.WriteLine($"Error during SIP account re-registration: {ex.Message}");
+// }
+
 app.Run();

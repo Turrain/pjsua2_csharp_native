@@ -6,6 +6,7 @@ using PjSua2.Native.pjsua2;
 using PjSip.App.Services;
 using PjSip.App.Exceptions;
 using PjSip.App.Data;
+using PjSip.App.Utils;
 
 namespace PjSip.App.Sip
 {
@@ -120,12 +121,12 @@ namespace PjSip.App.Sip
                         Console.WriteLine("Incoming call from " + ci.remoteUri);
                         _ = agent.Speak("Hello from agent");
                     }
-
-                    aud_med.startTransmit(_mediaPort);
-                    _mediaPort.startTransmit(aud_med);
+                    //    ThreadSafeEndpoint.Instance.EnsureThreadRegistered();
+                    //  aud_med.startTransmit(_mediaPort);
+                    //  _mediaPort.startTransmit(aud_med);
                 }
             }
-        
+
             // try
             // {
             //     var info = base.getInfo();

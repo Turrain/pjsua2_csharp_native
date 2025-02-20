@@ -11,6 +11,27 @@ export const api = {
     if (!response.ok) throw new Error('Failed to register account');
     return response.json();
   },
+  async clearAccounts() {
+    const response = await fetch('/api/SipAccounts', { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to clear accounts');
+    return response.json();
+  },
+  async clearAgentConfigs() {
+    const response = await fetch('/api/AgentConfig', { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to clear agent configurations');
+    return response.json();
+  },
+  async deleteAccount(accountId: string) {
+    const response = await fetch(`/api/SipAccounts/${accountId}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete account');
+    return response.json();
+  },
+
+  async deleteAgentConfig(id: number) {
+    const response = await fetch(`/api/AgentConfig/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete agent configuration');
+    return response.json();
+  },
   async createAgentConfig(config: Omit<AgentConfig, 'id'>) {
     const response = await fetch('/api/AgentConfig', {
       method: 'POST',

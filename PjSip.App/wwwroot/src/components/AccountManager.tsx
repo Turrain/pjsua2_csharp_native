@@ -1,12 +1,76 @@
-import { createSignal, createResource, For, Show } from 'solid-js';
+import { createSignal, createResource, For, Show, Component } from 'solid-js';
 import { api } from '../services/api';
 import { AgentConfig, SipAccount, LLMConfig, WhisperConfig, AuralisConfig } from '../types';
+
+
+interface CallDialogProps {
+  accountId: string;
+  onCall: (destination: string) => void;
+  onClose: () => void;
+}
+
+const CallDialog: Component<CallDialogProps> = (props) => {
+  const [destination, setDestination] = createSignal('');
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    props.onCall(destination());
+    props.onClose();
+  };
+
+  return (
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-lg w-96">
+        <h3 class="text-xl font-bold mb-4">Make Call</h3>
+        <form onSubmit={handleSubmit} class="space-y-4">
+          <input
+            type="text"
+            placeholder="sip:user@domain.com"
+            class="w-full bg-gray-700 rounded-lg p-2"
+            value={destination()}
+            onInput={(e) => setDestination(e.currentTarget.value)}
+            required
+          />
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              class="px-4 py-2 bg-gray-700 rounded-lg"
+              onClick={props.onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 bg-blue-600 rounded-lg"
+            >
+              Call
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+
+
 
 export default function AccountManager() {
   const [selectedTab, setSelectedTab] = createSignal<'accounts' | 'agents'>('accounts');
   const [accounts, { refetch: refetchAccounts }] = createResource(() => api.getAccounts());
   const [agents, { refetch: refetchAgents }] = createResource(() => api.getAgentConfigs());
   
+  const [callDialogOpen, setCallDialogOpen] = createSignal(false);
+  const [selectedAccount, setSelectedAccount] = createSignal<string | null>(null);
+  const handleMakeCall = async (accountId: string, destination: string) => {
+    try {
+      const call = await api.makeCall(accountId, destination);
+      console.log("Call initiated:", call);
+      // Optionally add UI feedback for call initiation
+    } catch (error) {
+      console.error("Call failed:", error);
+    }
+  };
   // Account form state
   const [newAccount, setNewAccount] = createSignal<Omit<SipAccount, 'accountId' | 'isActive'> & { password: string }>({
     username: '',
@@ -14,6 +78,45 @@ export default function AccountManager() {
     registrarUri: '',
     password: '',
   });
+
+  const handleClearAccounts = async () => {
+    try {
+      await api.clearAccounts();
+      refetchAccounts();
+      console.log("Accounts cleared.");
+    } catch (error) {
+      console.error("Failed to clear accounts:", error);
+    }
+  };
+  
+  const handleClearAgentConfigs = async () => {
+    try {
+      await api.clearAgentConfigs();
+      refetchAgents();
+      console.log("Agent configurations cleared.");
+    } catch (error) {
+      console.error("Failed to clear agent configurations:", error);
+    }
+  };
+  const handleDeleteAccount = async (accountId: string) => {
+    try {
+      await api.deleteAccount(accountId);
+      refetchAccounts();
+      console.log(`Account ${accountId} deleted.`);
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+    }
+  };
+  
+  const handleDeleteAgent = async (agentId: number) => {
+    try {
+      await api.deleteAgentConfig(agentId);
+      refetchAgents();
+      console.log(`Agent configuration ${agentId} deleted.`);
+    } catch (error) {
+      console.error("Failed to delete agent configuration:", error);
+    }
+  };
   const handleUpdateAgent = async (accountId: string, agentConfigId: number) => {
     try {
       await api.updateAccountAgent(accountId, agentConfigId);
@@ -159,6 +262,14 @@ export default function AccountManager() {
           </div>
 
           <div class="bg-gray-800 rounded-xl p-6">
+          <div class="mt-4 flex justify-end">
+      <button
+        class="px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition"
+        onClick={handleClearAccounts}
+      >
+        Clear All Accounts
+      </button>
+    </div>
             <h2 class="text-2xl font-bold mb-4">Active SIP Accounts</h2>
             <div class="overflow-x-auto">
               <table class="w-full">
@@ -169,6 +280,7 @@ export default function AccountManager() {
                     <th class="p-3 text-left">Domain</th>
                     <th class="p-3 text-left">Status</th>
                     <th class="p-3 text-left">Linked Agent</th>
+                    <th class="p-3 text-left">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -197,6 +309,25 @@ export default function AccountManager() {
             </For>
           </select>
         </td>
+        <td class="p-3">
+                          <button
+                            class="px-2 py-1 bg-blue-500 rounded hover:bg-blue-600"
+                            onClick={() => {
+                              setSelectedAccount(account.accountId);
+                              setCallDialogOpen(true);
+                            }}
+                          >
+                            Call
+                          </button>
+                        </td>
+                        <td class="p-3">
+  <button
+    class="px-2 py-1 bg-red-500 rounded hover:bg-red-600"
+    onClick={() => handleDeleteAccount(account.accountId)}
+  >
+    Delete
+  </button>
+</td>
       </tr>
     )}
   </For>
@@ -372,6 +503,14 @@ export default function AccountManager() {
           </div>
 
           <div class="bg-gray-800 rounded-xl p-6">
+          <div class="mt-4 flex justify-end">
+      <button
+        class="px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition"
+        onClick={handleClearAgentConfigs}
+      >
+        Clear All Agent Configurations
+      </button>
+    </div>
             <h2 class="text-2xl font-bold mb-4">Agent Configurations</h2>
             <div class="overflow-x-auto">
               <table class="w-full">
@@ -401,6 +540,14 @@ export default function AccountManager() {
                         </td>
                         <td class="p-3">{agent.createdAt ? new Date(agent.createdAt).toLocaleString() : '-'}</td>
                         <td class="p-3">{agent.updatedAt ? new Date(agent.updatedAt).toLocaleString() : '-'}</td>
+                        <td class="p-3">
+  <button
+    class="px-2 py-1 bg-red-500 rounded hover:bg-red-600"
+    onClick={() => handleDeleteAgent(agent.id)}
+  >
+    Delete
+  </button>
+</td>
                       </tr>
                     )}
                   </For>
@@ -410,6 +557,13 @@ export default function AccountManager() {
           </div>
         </Show>
       </div>
+      <Show when={callDialogOpen()}>
+        <CallDialog 
+          accountId={selectedAccount()!}
+          onCall={(destination: string) => handleMakeCall(selectedAccount()!, destination)}
+          onClose={() => setCallDialogOpen(false)}
+        />
+      </Show>
     </div>
   );
 }
