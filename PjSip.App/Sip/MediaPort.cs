@@ -1,103 +1,312 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using PjSip.App.Utils;
 using PjSua2.Lx;
 using PjSua2.Native.pjsua2;
-
-public class MediaPort : AudioMediaPort
-{
-    public event Action<byte[]> VoiceActivityDetected;
-    public VoiceActivityDetector _vad = new();
-    private Queue<byte[]> _audioQueue = new Queue<byte[]>();
-
-    private const int FRAME_SAMPLES = 160;
-    private const int FRAME_BYTES = 160 * 2;
-    private byte[] _pcmBuffer = null;
-    private int _pcmBufferIndex = 0;
-
-    public void AddToQueue(byte[] audioData)
+public class MediaPortManager : IDisposable
     {
-        if (audioData == null || audioData.Length == 0)
-            return;
+        private readonly ConcurrentDictionary<int, MediaPort> _mediaPorts;
+        private readonly ILogger<MediaPortManager> _logger;
+         private readonly ILoggerFactory _loggerFactory;
+   
+        private readonly Endpoint _endpoint;
+        private static int _portIndex = 0;
+        private bool _disposed;
 
-        lock (_audioQueue)
+        public MediaPortManager(ILogger<MediaPortManager> logger, ILoggerFactory loggerFactory)
+    {
+        _mediaPorts = new ConcurrentDictionary<int, MediaPort>();
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        _endpoint = ThreadSafeEndpoint.Instance.InstanceEndpoint;
+    }
+
+        /// <summary>
+        /// Creates or retrieves a MediaPort for a given call ID.
+        /// </summary>
+    public MediaPort GetOrCreateMediaPort(int callId)
         {
-            _audioQueue.Enqueue(audioData);
+            return _mediaPorts.GetOrAdd(callId, id =>
+            {
+                _logger.LogDebug("Creating new MediaPort for call {CallId}", id);
+                var mediaPort = CreateMediaPort(id);
+                return mediaPort;
+            });
+        }
+
+        private MediaPort CreateMediaPort(int callId)
+        {
+            var mediaPort = new MediaPort(_loggerFactory.CreateLogger<MediaPort>());
+            var mediaFormatAudio = new MediaFormatAudio();
+            mediaFormatAudio.init(
+                 1,
+                    8000,
+                    1,
+                    20000,
+                    16
+            );
+
+           string portName = $"Call-{callId}-Port-{Interlocked.Increment(ref _portIndex)}";
+            try
+            {
+                mediaPort.createPort(portName, mediaFormatAudio);
+                _logger.LogInformation("Created MediaPort {PortName} for call {CallId}, PortId: {PortId}", 
+                    portName, callId, mediaPort.getPortId());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create MediaPort for call {CallId}", callId);
+                throw;
+            }
+
+            return mediaPort;
+        }
+
+     
+
+     
+
+        /// <summary>
+        /// Removes and disposes a MediaPort for a given call ID.
+        /// </summary>
+      public void RemoveMediaPort(int callId)
+        {
+            if (_mediaPorts.TryRemove(callId, out var mediaPort))
+            {
+                try
+                {
+                    mediaPort.Dispose();
+                    _logger.LogInformation("Disposed MediaPort for call {CallId}", callId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error disposing MediaPort for call {CallId}", callId);
+                }
+            }
+        }
+
+       public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            foreach (var callId in _mediaPorts.Keys)
+            {
+                RemoveMediaPort(callId);
+            }
+            _mediaPorts.Clear();
+            _logger.LogDebug("MediaPortManager disposed");
         }
     }
-    public override void onFrameRequested(MediaFrame frame)
+    public class MediaPort : AudioMediaPort
     {
-        frame.type = pjmedia_frame_type.PJMEDIA_FRAME_TYPE_AUDIO;
-        int requiredBytes = FRAME_BYTES; // 320 bytes for 20ms of 8kHz, 16-bit audio.
-        byte[] tempBuffer = new byte[requiredBytes];
-        int bytesCopied = 0;
+        public VoiceActivityDetector _vad = new();
+        private Queue<byte[]> _audioQueue = new Queue<byte[]>();
+        private const int FRAME_SAMPLES = 160;
+        private const int FRAME_BYTES = 160 * 2;
+        private byte[] _pcmBuffer = null;
+        private int _pcmBufferIndex = 0;
+        private readonly ILogger<MediaPort> _logger;
 
-        lock (_audioQueue)
+        public Action<MediaFrame> onFrameRequestedOverride;
+        public Action<MediaFrame> onFrameReceivedOverride;
+
+        public MediaPort(ILogger<MediaPort> logger)
         {
-            // Copy bytes until we have the required amount.
-            while (bytesCopied < requiredBytes)
-            {
-                // If there is no current PCM buffer or we’ve exhausted it,
-                // try to get the next queued buffer.
-                if (_pcmBuffer == null || _pcmBufferIndex >= _pcmBuffer.Length)
+            _logger = logger;
+        }
+
+      public override void onFrameRequested(MediaFrame frame)
+        {
+           Console.WriteLine("TEST");
+                _logger?.LogDebug("onFrameRequested on Thread-{ThreadId}", Thread.CurrentThread.ManagedThreadId);
+                frame.type = pjmedia_frame_type.PJMEDIA_FRAME_TYPE_AUDIO;
+                int requiredBytes = FRAME_BYTES;
+                byte[] tempBuffer = new byte[requiredBytes];
+                int bytesCopied = 0;
+
+                lock (_audioQueue)
                 {
-                    if (_audioQueue.Count > 0)
+                    while (bytesCopied < requiredBytes)
                     {
-                        _pcmBuffer = _audioQueue.Dequeue();
-                        _pcmBufferIndex = 0;
-                    }
-                    else
-                    {
-                        // No more data available; exit the loop.
-                        break;
+                        if (_pcmBuffer == null || _pcmBufferIndex >= _pcmBuffer.Length)
+                        {
+                            if (_audioQueue.Count > 0)
+                            {
+                                _pcmBuffer = _audioQueue.Dequeue();
+                                _pcmBufferIndex = 0;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+
+                        int remainingBytes = requiredBytes - bytesCopied;
+                        int availableBytes = _pcmBuffer.Length - _pcmBufferIndex;
+                        int bytesToCopy = Math.Min(remainingBytes, availableBytes);
+
+                        Array.Copy(_pcmBuffer, _pcmBufferIndex, tempBuffer, bytesCopied, bytesToCopy);
+                        bytesCopied += bytesToCopy;
+                        _pcmBufferIndex += bytesToCopy;
                     }
                 }
 
-                int remainingBytes = requiredBytes - bytesCopied;
-                int availableBytes = _pcmBuffer.Length - _pcmBufferIndex;
-                int bytesToCopy = Math.Min(remainingBytes, availableBytes);
+                if (bytesCopied < requiredBytes)
+                {
+                    Array.Clear(tempBuffer, bytesCopied, requiredBytes - bytesCopied);
+                }
 
-                Array.Copy(_pcmBuffer, _pcmBufferIndex, tempBuffer, bytesCopied, bytesToCopy);
-                bytesCopied += bytesToCopy;
-                _pcmBufferIndex += bytesToCopy;
-            }
+                ByteVector bv = [.. tempBuffer];
+                frame.buf = bv;
+                frame.size = (uint)requiredBytes;
+            
         }
 
-        // If we couldn't fill the whole frame, pad the rest with zeros.
-        if (bytesCopied < requiredBytes)
+        public override void onFrameReceived(MediaFrame frame)
         {
-            for (int i = bytesCopied; i < requiredBytes; i++)
+             Console.WriteLine("AAAA");
+                _logger?.LogDebug("onFrameReceived on Thread-{ThreadId}", Thread.CurrentThread.ManagedThreadId);
+                if (frame == null || frame.buf == null || frame.size == 0)
+                {
+                    return;
+                }
+                _vad.ProcessFrame(frame);
+          
+        }
+
+        public void AddToQueue(byte[] audioData)
+        {
+            if (audioData == null || audioData.Length == 0) return;
+            lock (_audioQueue)
             {
-                tempBuffer[i] = 0;
+                _audioQueue.Enqueue(audioData);
             }
         }
 
-
-
-        ByteVector bv = [.. tempBuffer];
-        frame.buf = bv;
-        //Console.WriteLine("First few bytes: " + string.Join(", ", bv.Take(bv.Count)));
-        frame.size = (uint)requiredBytes;
-    }
-
-
-
-    public override void onFrameReceived(MediaFrame frame)
-    {
-
-        if (frame == null || frame.buf == null || frame.size == 0)
+        public void ClearQueue()
         {
-            return;
+            lock (_audioQueue)
+            {
+                _audioQueue.Clear();
+            }
+            _pcmBuffer = null;
+            _pcmBufferIndex = 0;
         }
-        // Console.WriteLine($"{string.Join(",",frame.buf.ToArray().Take(frame.buf.ToArray().Length))}");
-
-        _vad.ProcessFrame(frame);
     }
 
-    public void ClearQueue()
+
+    public static class MediaPortTest
     {
-        lock (_audioQueue)
+        private static Timer _audioFeedTimer;
+        private static byte[] _pcmData;
+        private static int _feedPosition = 0;
+        private static volatile bool _isRunning = false;
+        private static readonly object _lock = new();
+
+        public static void RunTest(MediaPort mediaPort, ILogger logger, int durationSeconds = 10)
         {
-            _audioQueue.Clear();
+            if (_isRunning)
+            {
+                logger.LogWarning("Test is already running.");
+                return;
+            }
+
+            _isRunning = true;
+            string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test.wav");
+
+            try
+            {
+                if (!File.Exists(filePath))
+                {
+                    logger.LogError("WAV file not found at: {FilePath}", filePath);
+                    _isRunning = false;
+                    return;
+                }
+
+                byte[] wavData = File.ReadAllBytes(filePath);
+                int headerSize = 44; // Standard WAV header size
+                if (wavData.Length <= headerSize)
+                {
+                    logger.LogError("WAV file is too small or corrupted: {FilePath}", filePath);
+                    _isRunning = false;
+                    return;
+                }
+
+                _pcmData = new byte[wavData.Length - headerSize];
+                Array.Copy(wavData, headerSize, _pcmData, 0, _pcmData.Length);
+                logger.LogInformation("Loaded {Length} bytes of PCM data from {FilePath}", _pcmData.Length, filePath);
+
+                // Feed data in chunks every 20ms to simulate real-time audio
+                _feedPosition = 0;
+                _audioFeedTimer = new Timer(
+                    state => FeedData(mediaPort, logger),
+                    null,
+                    0, // Start immediately
+                    20 // 20ms interval
+                );
+
+                // Stop the test after the specified duration
+                Thread.Sleep(durationSeconds * 1000);
+                StopTest(logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Exception occurred while running MediaPort test");
+                StopTest(logger);
+            }
         }
-        _pcmBuffer = null;
-        _pcmBufferIndex = 0;
+
+        private static void FeedData(MediaPort mediaPort, ILogger logger)
+        {
+            const int chunkSize = 320; // Matches FRAME_BYTES (160 samples * 2 bytes/sample)
+
+            ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
+            {
+                lock (_lock) // Synchronize access to _pcmData and _feedPosition
+                {
+                    if (!_isRunning) return;
+
+                    if (_feedPosition >= _pcmData.Length)
+                    {
+                        _feedPosition = 0; // Loop the audio
+                        logger.LogDebug("Looping audio playback at position 0");
+                    }
+
+                    int bytesRemaining = _pcmData.Length - _feedPosition;
+                    int bytesToCopy = Math.Min(chunkSize, bytesRemaining);
+                    byte[] chunk = new byte[chunkSize]; // Always allocate full chunk size
+                    Array.Copy(_pcmData, _feedPosition, chunk, 0, bytesToCopy);
+
+                    // Pad with zeros if the chunk is incomplete
+                    if (bytesToCopy < chunkSize)
+                    {
+                        Array.Clear(chunk, bytesToCopy, chunkSize - bytesToCopy);
+                        logger.LogDebug("Padded chunk with {Padding} bytes of silence", chunkSize - bytesToCopy);
+                    }
+
+                    _feedPosition += bytesToCopy;
+                    mediaPort.AddToQueue(chunk);
+                    logger.LogDebug("Fed {Bytes} bytes to MediaPort at position {Position}", chunkSize, _feedPosition);
+                }
+            });
+        }
+
+        private static void StopTest(ILogger logger)
+        {
+            ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
+            {
+                lock (_lock)
+                {
+                    if (!_isRunning) return;
+
+                    _isRunning = false;
+                    _audioFeedTimer?.Dispose();
+                    _audioFeedTimer = null;
+                    _pcmData = null;
+                    _feedPosition = 0;
+                    logger.LogInformation("MediaPort test stopped");
+                }
+            });
+        }
     }
-}

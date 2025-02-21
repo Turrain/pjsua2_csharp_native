@@ -18,16 +18,20 @@ namespace PjSip.App.Sip
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly int _dbId;
         public AgentConfig Agent { get; set; }
+        private readonly MediaPortManager _mediaPortManager;
+
         public int DbId => _dbId;
 
-        public Account(SipDbContext context, int dbId, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
-        {
-            // No longer storing the injected context to avoid disposal issues.
-            _dbId = dbId;
-            _loggerFactory = loggerFactory;
-            _logger = loggerFactory.CreateLogger<Account>();
-            _serviceScopeFactory = serviceScopeFactory;
-        }
+       public Account(SipDbContext context, int dbId, ILoggerFactory loggerFactory, 
+    IServiceScopeFactory serviceScopeFactory, MediaPortManager mediaPortManager)
+{
+    _dbId = dbId;
+    _loggerFactory = loggerFactory;
+    _logger = loggerFactory.CreateLogger<Account>();
+    _serviceScopeFactory = serviceScopeFactory;
+    _mediaPortManager = mediaPortManager ?? throw new ArgumentNullException(nameof(mediaPortManager));
+}
+
 
         public override void onIncomingCall(OnIncomingCallParam prm)
         {
@@ -35,10 +39,10 @@ namespace PjSip.App.Sip
             {
                 _logger.LogInformation("Incoming call received for account {DbId}", _dbId);
 
-                var call = new Call(this, prm.callId, _loggerFactory, _serviceScopeFactory)
-                {
-                    CallDirection = Call.Direction.Incoming
-                };
+                var call = new Call(this, prm.callId, _loggerFactory, _serviceScopeFactory, _mediaPortManager)
+        {
+            CallDirection = Call.Direction.Incoming
+        };
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<SipDbContext>();

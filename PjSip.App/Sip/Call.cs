@@ -12,84 +12,62 @@ namespace PjSip.App.Sip
 {
     public class Call : PjSua2.Native.pjsua2.Call, IDisposable
     {
-        static int port_index = 0;
-        private readonly IServiceScopeFactory _serviceScopeFactory;
-
+       private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<Call> _logger;
+        private readonly MediaPortManager _mediaPortManager;
+        private readonly Agent _agent;
         private MediaPort _mediaPort;
-        private Account _account;
-        private Agent agent;
-        public MediaPort MediaPort { get; private set; }
 
         public enum Direction { Incoming, Outgoing }
         public Direction CallDirection { get; set; }
 
-        public Call(Account acc, int callId, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory)
-             : base(acc, callId)
+      public Call(Account acc, int callId, ILoggerFactory loggerFactory, IServiceScopeFactory serviceScopeFactory, MediaPortManager mediaPortManager)
+            : base(acc, callId)
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = loggerFactory.CreateLogger<Call>();
-            agent = new Agent(acc.Agent);
+            _mediaPortManager = mediaPortManager ?? throw new ArgumentNullException(nameof(mediaPortManager));
+            _agent = new Agent(acc.Agent);
 
-            // Use a new scope to obtain a fresh SipDbContext instance for AgentManager initialization.
             using (var scope = _serviceScopeFactory.CreateScope())
             {
                 var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
                 try
                 {
-                    //    MediaPort = new MediaPort();
-                    //    _agentManager = new AgentManager(context, loggerFactory.CreateLogger<AgentManager>());
-                    //    _agentManager.RegisterMediaPort((int)base.getId(), MediaPort);
-                    _logger.LogInformation("Call {CallId} initialized successfully", (int)base.getId());
+                    _logger.LogInformation("Call {CallId} initialized successfully", callId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to initialize call {CallId}", (int)base.getId());
-                    throw new SipCallException("Failed to initialize call", (int)base.getId(), "INIT_FAILED", ex);
+                    _logger.LogError(ex, "Failed to initialize call {CallId}", callId);
+                    throw new SipCallException("Failed to initialize call", callId, "INIT_FAILED", ex);
                 }
             }
 
-            _mediaPort ??= new MediaPort();
-            _mediaPort._vad.VoiceSegmentDetected += delegate (ReadOnlyMemory<MediaFrame> voiceFrames)
+            _mediaPort = _mediaPortManager.GetOrCreateMediaPort(callId);
+            SetupMediaPortCallbacks();
+        }
+private void SetupMediaPortCallbacks()
+        {
+            _mediaPort._vad.VoiceSegmentDetected += (voiceFrames) =>
             {
-                Console.WriteLine("SEGMENT " + voiceFrames.Length);
-                //    _mediaPort._vad.SaveSegmentToWav(voiceFrames.Span, $"SEGMENT_{voiceFrames.Length}.wav");
+                _logger.LogDebug("Voice segment detected for call {CallId}, length: {Length}", (int)base.getId(), voiceFrames.Length);
                 var data = _mediaPort._vad.ExtractBytesFromFrames(voiceFrames.Span);
-                agent.Listen(data);
+                _agent.Listen(data);
                 _mediaPort.ClearQueue();
             };
-            agent.AuralisClient.OnBinaryMessage += data =>
+
+            _agent.AuralisClient.OnBinaryMessage += (data) =>
             {
                 _mediaPort.AddToQueue(data);
             };
-            _mediaPort._vad.VoiceFrameDetected += delegate (MediaFrame frame, bool isVoiced)
-            {
-
-            };
-
-            if (_mediaPort.getPortId() == pjsua2.INVALID_ID)
-            {
-                var mediaFormatAudio = new MediaFormatAudio();
-                mediaFormatAudio.init(
-                    1,
-                    8000,
-                    1,
-                    20000,
-                    16
-                );
-                _mediaPort.createPort($"default{++port_index}", mediaFormatAudio);
-            }
         }
-
-        public override void onCallState(OnCallStateParam prm)
+       public override void onCallState(OnCallStateParam prm)
         {
             try
             {
                 var info = base.getInfo();
-                var state = info.stateText;
-                _logger.LogInformation("Call {CallId} state changed to {State}", (int)base.getId(), state);
+                _logger.LogInformation("Call {CallId} state changed to {State}", (int)base.getId(), info.stateText);
 
-                // Handle call termination.
                 if (info.state == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED)
                 {
                     _logger.LogInformation("Call {CallId} disconnected", (int)base.getId());
@@ -101,93 +79,66 @@ namespace PjSip.App.Sip
                 _logger.LogError(ex, "Error handling call state change for {CallId}", (int)base.getId());
             }
         }
-
-        public override void onCallMediaState(OnCallMediaStateParam prm)
+       public override void onCallMediaState(OnCallMediaStateParam prm)
         {
-            _logger.LogInformation("Call {CallId} media state changed", (int)base.getId());
+            _logger.LogInformation("Call {CallId} media state changed on Thread-{ThreadId}", 
+                (int)base.getId(), Thread.CurrentThread.ManagedThreadId);
 
             var ci = getInfo();
             for (var i = 0; i < ci.media.Count; i++)
             {
-                if ((ci.media[i].status == pjsua_call_media_status.PJSUA_CALL_MEDIA_ACTIVE) && (ci.media[i].type == pjmedia_type.PJMEDIA_TYPE_AUDIO))
+                if (ci.media[i].status == pjsua_call_media_status.PJSUA_CALL_MEDIA_ACTIVE && 
+                    ci.media[i].type == pjmedia_type.PJMEDIA_TYPE_AUDIO)
                 {
                     var aud_med = getAudioMedia(i);
+                    if (aud_med == null)
+                    {
+                        _logger.LogWarning("Audio media is null for call {CallId} media index {MediaIndex}", 
+                            (int)base.getId(), i);
+                        continue;
+                    }
 
-                    var aud_dev_man = Endpoint.instance().audDevManager();
-                    if (aud_med == null) continue;
+                    if (_mediaPort.getPortId() == pjsua2.INVALID_ID)
+                    {
+                        _logger.LogError("MediaPort is invalid for call {CallId}", (int)base.getId());
+                        continue;
+                    }
 
                     if (CallDirection == Direction.Incoming)
                     {
                         Console.WriteLine("Incoming call from " + ci.remoteUri);
-                        _ = agent.Speak("Hello from agent");
+                        _ = _agent.Speak("Hello from agent");
+                        Task.Run(() => MediaPortTest.RunTest(_mediaPort, _logger, durationSeconds: 10));
                     }
-                    //    ThreadSafeEndpoint.Instance.EnsureThreadRegistered();
-                    //  aud_med.startTransmit(_mediaPort);
-                    //  _mediaPort.startTransmit(aud_med);
+
+                    try
+                    {
+                        ThreadSafeEndpoint.Instance.ExecuteSafely(() =>
+                        {
+                            _logger.LogDebug("Starting transmission for call {CallId} on Thread-{ThreadId}", 
+                                (int)base.getId(), Thread.CurrentThread.ManagedThreadId);
+                            aud_med.startTransmit(_mediaPort);
+                            _mediaPort.startTransmit(aud_med);
+                        });
+                        _logger.LogInformation("Audio transmission started for call {CallId} media index {MediaIndex}", 
+                            (int)base.getId(), i);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to start audio transmission for call {CallId} media index {MediaIndex}", 
+                            (int)base.getId(), i);
+                    }
                 }
             }
-
-            // try
-            // {
-            //     var info = base.getInfo();
-            //     foreach (var media in info.media)
-            //     {
-            //         if (media.type == pjmedia_type.PJMEDIA_TYPE_AUDIO &&
-            //             media.status == pjsua_call_media_status.PJSUA_CALL_MEDIA_ACTIVE)
-            //         {
-            //             try
-            //             {
-            //                 // Get the index of the first active audio media
-            //                 int mediaIdx = -1;
-            //                 for (int i = 0; i < info.media.Count; i++)
-            //                 {
-            //                     if (info.media[i].type == pjmedia_type.PJMEDIA_TYPE_AUDIO)
-            //                     {
-            //                         mediaIdx = i;
-            //                         break;
-            //                     }
-            //                 }
-
-            //                 if (mediaIdx >= 0)
-            //                 {
-            //                     var aud = base.getAudioMedia(mediaIdx);
-            //                     if (aud != null && MediaPort != null)
-            //                     {
-            //                         aud.startTransmit(MediaPort);
-            //                         MediaPort.startTransmit(aud);
-            //                         _logger.LogInformation("Audio media started for call {CallId} using media index {MediaIdx}", 
-            //                             (int)base.getId(), mediaIdx);
-            //                     }
-            //                     else
-            //                     {
-            //                         _logger.LogWarning("Audio media or MediaPort is null for call {CallId}", (int)base.getId());
-            //                     }
-            //                 }
-            //                 else
-            //                 {
-            //                     _logger.LogWarning("No valid audio media index found for call {CallId}", (int)base.getId());
-            //                 }
-            //             }
-            //             catch (Exception ex)
-            //             {
-            //                 _logger.LogError(ex, "Failed to start audio media for call {CallId}", (int)base.getId());
-            //                 throw new MediaOperationException("Failed to start audio transmission", (int)base.getId(), "START_MEDIA", ex);
-            //             }
-            //         }
-            //     }
-            // }
-            // catch (Exception ex)
-            // {
-            //     _logger.LogError(ex, "Error handling media state change for {CallId}", (int)base.getId());
-            // }
         }
 
-        private void CleanupResources()
+       private void CleanupResources()
         {
+            Console.WriteLine("Disposing");
             try
             {
-                MediaPort?.Dispose();
-                MediaPort = null;
+                _mediaPortManager.RemoveMediaPort((int)base.getId());
+                _mediaPort = null;
             }
             catch (Exception ex)
             {

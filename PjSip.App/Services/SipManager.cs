@@ -23,17 +23,20 @@ namespace PjSip.App.Services
         private readonly SipOperationPolicies _policies;
         public  readonly ConcurrentDictionary<string, Sip.Account> _accounts = new();
         private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls = new();
-
+         private readonly MediaPortManager _mediaPortManager; // Add this line
+   
         public SipManager(
             ILogger<SipManager> logger,
             ILoggerFactory loggerFactory,
-            IServiceScopeFactory serviceScopeFactory)
+            IServiceScopeFactory serviceScopeFactory,
+            MediaPortManager mediaPortManager)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
             _serviceScopeFactory = serviceScopeFactory;
             _policies = new SipOperationPolicies(logger);
-
+ _mediaPortManager = mediaPortManager;
+       
             InitializePjsip();
             StartCommandProcessor();
         }
@@ -79,11 +82,17 @@ namespace PjSip.App.Services
 
         public Task RegisterAccountAsync(SipAccount account) =>
             ExecuteCommand(new RegisterAccountCommand(
-                account, _serviceScopeFactory, _loggerFactory, _accounts));
+                account, _serviceScopeFactory, _loggerFactory, _accounts, _mediaPortManager));
 
         public Task MakeCallAsync(string accountId, string destUri) =>
-            ExecuteCommand(new MakeCallCommand(
-                accountId, destUri, _serviceScopeFactory, _activeCalls, _accounts, _loggerFactory));
+        ExecuteCommand(new MakeCallCommand(
+            accountId, 
+            destUri, 
+            _serviceScopeFactory, 
+            _activeCalls, 
+            _accounts, 
+            _loggerFactory,
+            _mediaPortManager));
 
         public Task HangupCallAsync(int callId) =>
             ExecuteCommand(new HangupCallCommand(callId, _serviceScopeFactory, _activeCalls));
@@ -221,17 +230,20 @@ namespace PjSip.App.Services
             private readonly IServiceScopeFactory _scopeFactory;
             private readonly ILoggerFactory _loggerFactory;
             private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
-
+        private readonly MediaPortManager _mediaPortManager;
             public RegisterAccountCommand(
                 SipAccount account,
                 IServiceScopeFactory scopeFactory,
                 ILoggerFactory loggerFactory,
-                ConcurrentDictionary<string, Sip.Account> accounts)
+                ConcurrentDictionary<string, Sip.Account> accounts,
+                MediaPortManager mediaPortManager)
             {
                 _account = account;
                 _scopeFactory = scopeFactory;
                 _loggerFactory = loggerFactory;
                 _accounts = accounts;
+                _mediaPortManager = mediaPortManager;
+
             }
 
             protected override void ExecuteCore()
@@ -260,7 +272,7 @@ namespace PjSip.App.Services
                     context,
                     _account.Id,
                     _loggerFactory,
-                    _scopeFactory);
+                    _scopeFactory, _mediaPortManager);
                     
                 pjsipAccount.Agent = _account.Agent;
 
@@ -306,60 +318,71 @@ namespace PjSip.App.Services
                 _accounts.Clear();
             }
         }
-        private class MakeCallCommand : SipCommandBase
+       private class MakeCallCommand : SipCommandBase
+    {
+        private readonly string _accountId;
+        private readonly string _destUri;
+        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly MediaPortManager _mediaPortManager; // Added
+        private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls;
+        private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
+
+        public MakeCallCommand(
+            string accountId,
+            string destUri,
+            IServiceScopeFactory scopeFactory,
+            ConcurrentDictionary<int, (Sip.Call, string)> activeCalls,
+            ConcurrentDictionary<string, Sip.Account> accounts,
+            ILoggerFactory loggerFactory,
+            MediaPortManager mediaPortManager) // Added parameter
         {
-            private readonly string _accountId;
-            private readonly string _destUri;
-            private readonly IServiceScopeFactory _scopeFactory;
-            private readonly ILoggerFactory _loggerFactory;
-            private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls;
-            private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
-
-            public MakeCallCommand(
-                string accountId,
-                string destUri,
-                IServiceScopeFactory scopeFactory,
-                ConcurrentDictionary<int, (Sip.Call, string)> activeCalls,
-                ConcurrentDictionary<string, Sip.Account> accounts,
-                ILoggerFactory loggerFactory)
-            {
-                _accountId = accountId;
-                _destUri = destUri;
-                _scopeFactory = scopeFactory;
-                _activeCalls = activeCalls;
-                _accounts = accounts;
-                _loggerFactory = loggerFactory;
-            }
-
-            protected override void ExecuteCore()
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
-
-                if (!_accounts.TryGetValue(_accountId, out var account))
-                    throw new SipCallException("Account not found", -1, "INVALID_ACCOUNT");
-
-                 var call = new Sip.Call(account, -1, _loggerFactory, _scopeFactory);
-                var prm = new CallOpParam(true);
-                call.makeCall(_destUri, prm);
-
-                var dbAccount = context.SipAccounts.Find(account.DbId) ??
-                    throw new InvalidOperationException($"Account {_accountId} not found");
-
-                var sipCall = new SipCall(
-                    callId: call.getId(),
-                    remoteUri: _destUri,
-                    status: "INITIATED",
-                    account: dbAccount
-                );
-
-                context.SipCalls.Add(sipCall);
-                context.SaveChanges();
-
-                _activeCalls.TryAdd(call.getId(), (call, _accountId));
-            }
+            _accountId = accountId;
+            _destUri = destUri;
+            _scopeFactory = scopeFactory;
+            _activeCalls = activeCalls;
+            _accounts = accounts;
+            _loggerFactory = loggerFactory;
+            _mediaPortManager = mediaPortManager ?? throw new ArgumentNullException(nameof(mediaPortManager));
         }
 
+        protected override void ExecuteCore()
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+
+            if (!_accounts.TryGetValue(_accountId, out var account))
+                throw new SipCallException("Account not found", -1, "INVALID_ACCOUNT");
+
+            // Instantiate Call with MediaPortManager
+            var call = new Sip.Call(account, -1, _loggerFactory, _scopeFactory, _mediaPortManager);
+            var prm = new CallOpParam(true);
+
+            try
+            {
+                call.makeCall(_destUri, prm);
+            }
+            catch (Exception ex)
+            {
+                throw new SipCallException("Failed to make call", call.getId(), "CALL_FAILED", ex);
+            }
+
+            var dbAccount = context.SipAccounts.Find(account.DbId) ??
+                throw new InvalidOperationException($"Account {_accountId} not found");
+
+            var sipCall = new SipCall(
+                callId: call.getId(),
+                remoteUri: _destUri,
+                status: "INITIATED",
+                account: dbAccount
+            );
+
+            context.SipCalls.Add(sipCall);
+            context.SaveChanges();
+
+            _activeCalls.TryAdd(call.getId(), (call, _accountId));
+        }
+    }
         private class HangupCallCommand : SipCommandBase
         {
             private readonly int _callId;
