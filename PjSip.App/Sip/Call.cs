@@ -142,7 +142,8 @@ namespace PjSip.App.Sip
                                 (int)base.getId(), Thread.CurrentThread.ManagedThreadId);
                             aud_med.startTransmit(_mediaPort);
                             _mediaPort.startTransmit(aud_med);
-                   
+                   string filePath = Path.Combine("recordings", $"call_{getId()}.wav");
+                _mediaPort.StartRecording(filePath);
                         _logger.LogInformation("Audio transmission started for call {CallId} media index {MediaIndex}",
                             (int)base.getId(), i);
                     }
@@ -160,6 +161,7 @@ namespace PjSip.App.Sip
             Console.WriteLine("Disposing");
             try
             {
+                _mediaPort.StopRecording();
                 _mediaPortManager.RemoveMediaPort((int)base.getId());
                 _mediaPort = null;
             }

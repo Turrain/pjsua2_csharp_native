@@ -98,8 +98,17 @@ public class MediaPortManager : IDisposable
             _logger.LogDebug("MediaPortManager disposed");
         }
     }
-    public class MediaPort : AudioMediaPort
+    public class MediaPort : AudioMediaPort, IDisposable
     {
+
+        private BlockingCollection<byte[]> _recordingQueue;
+private Task _recordingTask;
+private FileStream _fileStream;
+private BinaryWriter _writer;
+private long _totalBytes = 0;
+private bool _isRecording = false;
+
+
         public VoiceActivityDetector _vad = new();
         private Queue<byte[]> _audioQueue = new Queue<byte[]>();
         private const int FRAME_SAMPLES = 160;
@@ -115,7 +124,86 @@ public class MediaPortManager : IDisposable
         {
             _logger = logger;
         }
+public void StartRecording(string filePath)
+{
+    if (_isRecording) return;
+    _isRecording = true;
 
+    // Ensure the directory exists
+    string directory = Path.GetDirectoryName(filePath);
+    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+
+    _recordingQueue = new BlockingCollection<byte[]>();
+    _fileStream = new FileStream(filePath, FileMode.Create);
+    _writer = new BinaryWriter(_fileStream);
+    WriteWavHeader(_writer);
+
+    _totalBytes = 0;
+    _recordingTask = Task.Run(() =>
+    {
+        foreach (var audioData in _recordingQueue.GetConsumingEnumerable())
+        {
+            try
+            {
+                _writer.Write(audioData);
+                _totalBytes += audioData.Length;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error writing audio data to file.");
+            }
+        }
+    });
+}
+
+public void StopRecording()
+{
+    if (!_isRecording) return;
+    _isRecording = false;
+
+    try
+    {
+        _recordingQueue.CompleteAdding();
+        _recordingTask.Wait(); // Wait for the task to finish writing all data
+
+        // Update WAV header
+        _writer.BaseStream.Position = 4;
+        _writer.Write((uint)(36 + _totalBytes)); // File size (header - 8)
+        _writer.BaseStream.Position = 40;
+        _writer.Write((uint)_totalBytes); // Data size
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error finalizing recording.");
+    }
+    finally
+    {
+        _writer?.Close();
+        _fileStream?.Close();
+        _recordingQueue = null;
+        _recordingTask = null;
+        _totalBytes = 0;
+    }
+}
+private void WriteWavHeader(BinaryWriter writer)
+{
+    writer.Write(new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F' });
+    writer.Write(0); // Placeholder for file size
+    writer.Write(new byte[] { (byte)'W', (byte)'A', (byte)'V', (byte)'E' });
+    writer.Write(new byte[] { (byte)'f', (byte)'m', (byte)'t', (byte)' ' });
+    writer.Write(16); // Size of fmt chunk
+    writer.Write((short)1); // PCM format
+    writer.Write((short)1); // Channels
+    writer.Write(8000); // Sample rate
+    writer.Write(16000); // Byte rate (8000 Hz * 1 channel * 2 bytes/sample)
+    writer.Write((short)2); // Block align (1 channel * 2 bytes/sample)
+    writer.Write((short)16); // Bits per sample
+    writer.Write(new byte[] { (byte)'d', (byte)'a', (byte)'t', (byte)'a' });
+    writer.Write(0); // Placeholder for data size
+}
       public override void onFrameRequested(MediaFrame frame)
         {
            
@@ -172,6 +260,19 @@ public class MediaPortManager : IDisposable
                     return;
                 }
                 _vad.ProcessFrame(frame);
+                if (_isRecording)
+    {
+        try
+        {
+            // Extract audio data from the frame (up to frame.size)
+            byte[] audioData = frame.buf.Take((int)frame.size).ToArray();
+            _recordingQueue.Add(audioData);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enqueuing audio data for recording.");
+        }
+    }
           
         }
 
@@ -183,7 +284,14 @@ public class MediaPortManager : IDisposable
                 _audioQueue.Enqueue(audioData);
             }
         }
-
+protected override void Dispose(bool disposing)
+{
+    if (disposing)
+    {
+        StopRecording();
+    }
+    base.Dispose(disposing);
+}
         public void ClearQueue()
         {
             lock (_audioQueue)
