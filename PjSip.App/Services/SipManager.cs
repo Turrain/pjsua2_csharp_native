@@ -11,11 +11,14 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
 using PjSip.App.Utils;
 using PjSip.App.Models;
+using PjSip.App.Hubs;
+using Microsoft.AspNetCore.SignalR;
 
 namespace PjSip.App.Services
 {
     public class SipManager
     {
+          private readonly IHubContext<SipHub> _hubContext;
         private readonly BlockingCollection<ISipCommand> _commandQueue = new();
         private readonly ILogger<SipManager> _logger;
         private readonly ILoggerFactory _loggerFactory;
@@ -29,11 +32,15 @@ namespace PjSip.App.Services
             ILogger<SipManager> logger,
             ILoggerFactory loggerFactory,
             IServiceScopeFactory serviceScopeFactory,
-            MediaPortManager mediaPortManager)
+            MediaPortManager mediaPortManager,
+               IHubContext<SipHub> hubContext)
         {
+              _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
             _logger = logger;
             _loggerFactory = loggerFactory;
             _serviceScopeFactory = serviceScopeFactory;
+      
+
             _policies = new SipOperationPolicies(logger);
  _mediaPortManager = mediaPortManager;
        
@@ -82,7 +89,7 @@ namespace PjSip.App.Services
 
         public Task RegisterAccountAsync(SipAccount account) =>
             ExecuteCommand(new RegisterAccountCommand(
-                account, _serviceScopeFactory, _loggerFactory, _accounts, _mediaPortManager));
+                account, _serviceScopeFactory, _loggerFactory, _accounts, _mediaPortManager, _hubContext));
 
         public Task MakeCallAsync(string accountId, string destUri) =>
         ExecuteCommand(new MakeCallCommand(
@@ -92,7 +99,7 @@ namespace PjSip.App.Services
             _activeCalls, 
             _accounts, 
             _loggerFactory,
-            _mediaPortManager));
+            _mediaPortManager, _hubContext));
 
         public Task HangupCallAsync(int callId) =>
             ExecuteCommand(new HangupCallCommand(callId, _serviceScopeFactory, _activeCalls));
@@ -224,27 +231,19 @@ namespace PjSip.App.Services
             protected abstract void ExecuteCore();
         }
 
-        private class RegisterAccountCommand : SipCommandBase
+        private class RegisterAccountCommand(
+            SipAccount account,
+            IServiceScopeFactory scopeFactory,
+            ILoggerFactory loggerFactory,
+            ConcurrentDictionary<string, Sip.Account> accounts,
+            MediaPortManager mediaPortManager, IHubContext<SipHub> hubContext) : SipCommandBase
         {
-            private readonly SipAccount _account;
-            private readonly IServiceScopeFactory _scopeFactory;
-            private readonly ILoggerFactory _loggerFactory;
-            private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
-        private readonly MediaPortManager _mediaPortManager;
-            public RegisterAccountCommand(
-                SipAccount account,
-                IServiceScopeFactory scopeFactory,
-                ILoggerFactory loggerFactory,
-                ConcurrentDictionary<string, Sip.Account> accounts,
-                MediaPortManager mediaPortManager)
-            {
-                _account = account;
-                _scopeFactory = scopeFactory;
-                _loggerFactory = loggerFactory;
-                _accounts = accounts;
-                _mediaPortManager = mediaPortManager;
-
-            }
+            private readonly SipAccount _account = account;
+            private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+            private readonly ILoggerFactory _loggerFactory = loggerFactory;
+            private readonly ConcurrentDictionary<string, Sip.Account> _accounts = accounts;
+        private readonly MediaPortManager _mediaPortManager = mediaPortManager;
+        private readonly IHubContext<SipHub> _hubContext = hubContext;
 
             protected override void ExecuteCore()
             {
@@ -272,7 +271,7 @@ namespace PjSip.App.Services
                     context,
                     _account.Id,
                     _loggerFactory,
-                    _scopeFactory, _mediaPortManager);
+                    _scopeFactory, _mediaPortManager, _hubContext);
                     
                 pjsipAccount.Agent = _account.Agent;
 
@@ -327,7 +326,7 @@ namespace PjSip.App.Services
         private readonly MediaPortManager _mediaPortManager; // Added
         private readonly ConcurrentDictionary<int, (Sip.Call Call, string AccountId)> _activeCalls;
         private readonly ConcurrentDictionary<string, Sip.Account> _accounts;
-
+ private readonly IHubContext<SipHub> _hubContext;
         public MakeCallCommand(
             string accountId,
             string destUri,
@@ -335,7 +334,8 @@ namespace PjSip.App.Services
             ConcurrentDictionary<int, (Sip.Call, string)> activeCalls,
             ConcurrentDictionary<string, Sip.Account> accounts,
             ILoggerFactory loggerFactory,
-            MediaPortManager mediaPortManager) // Added parameter
+            MediaPortManager mediaPortManager,
+            IHubContext<SipHub> hubContext) // Added parameter
         {
             _accountId = accountId;
             _destUri = destUri;
@@ -343,6 +343,7 @@ namespace PjSip.App.Services
             _activeCalls = activeCalls;
             _accounts = accounts;
             _loggerFactory = loggerFactory;
+            _hubContext = hubContext;
             _mediaPortManager = mediaPortManager ?? throw new ArgumentNullException(nameof(mediaPortManager));
         }
 
@@ -355,7 +356,7 @@ namespace PjSip.App.Services
                 throw new SipCallException("Account not found", -1, "INVALID_ACCOUNT");
 
             // Instantiate Call with MediaPortManager
-            var call = new Sip.Call(account, -1, _loggerFactory, _scopeFactory, _mediaPortManager);
+            var call = new Sip.Call(account, -1, _loggerFactory, _scopeFactory, _mediaPortManager, _hubContext);
             var prm = new CallOpParam(true);
 
             try

@@ -175,11 +175,11 @@ namespace PjSip.App.Services
         public async Task<IEnumerable<SipAccount>> GetAllAccountsAsync()
         {
             using var scope = _scopeFactory.CreateScope();
-             var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
+            var context = scope.ServiceProvider.GetRequiredService<SipDbContext>();
 
-            return await context.SipAccounts.Include(a => a.Agent).AsNoTracking().ToListAsync();
+            return await context.SipAccounts.Include(a => a.Agent) .Include(a => a.Calls) .AsNoTracking().ToListAsync();
         }
-
+    
         private static async Task ClearDatabaseEntities(SipDbContext context)
         {
             context.SipCalls.RemoveRange(await context.SipCalls.ToListAsync());

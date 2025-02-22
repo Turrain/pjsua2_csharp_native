@@ -32,6 +32,11 @@ export const api = {
     if (!response.ok) throw new Error('Failed to delete agent configuration');
     return response.json();
   },
+  async getCalls() {
+    const response = await fetch('/api/SipCall'); // ensure your backend exposes this endpoint
+    if (!response.ok) throw new Error('Failed to fetch calls');
+    return response.json() as Promise<Call[]>;
+  },
   async createAgentConfig(config: Omit<AgentConfig, 'id'>) {
     const response = await fetch('/api/AgentConfig', {
       method: 'POST',
@@ -73,9 +78,8 @@ export const api = {
   },
 
   async hangupCall(callId: number) {
-    const response = await fetch(`/api/SipCall/${callId}/hangup`, {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Failed to hangup call');
-  }
+    const response = await fetch(`/api/sipcall/${callId}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to hang up call');
+    return response.json();
+},
 };

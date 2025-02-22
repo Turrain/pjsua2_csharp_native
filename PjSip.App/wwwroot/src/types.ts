@@ -40,12 +40,13 @@ export interface SipAccount {
   registrarUri: string;
   isActive: boolean;
   agent?: AgentConfig;
+  calls: Call[];
 }
   
 export interface Call {
   callId: number;
+  remoteUri: string;
   status: string;
   startedAt: string;
   endedAt?: string;
-  remoteUri: string;
 }

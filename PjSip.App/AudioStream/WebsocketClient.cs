@@ -37,6 +37,7 @@ namespace PjSua2.Lx.AudioStream
             _uri = new Uri(uri);
             _webSocket = new ClientWebSocket();
             _cts = new CancellationTokenSource();
+            ConnectAsync().Wait();
         }
 
         /// <summary>

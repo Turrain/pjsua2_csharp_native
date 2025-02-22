@@ -118,7 +118,7 @@ public class MediaPortManager : IDisposable
 
       public override void onFrameRequested(MediaFrame frame)
         {
-           Console.WriteLine("TEST");
+           
                 _logger?.LogDebug("onFrameRequested on Thread-{ThreadId}", Thread.CurrentThread.ManagedThreadId);
                 frame.type = pjmedia_frame_type.PJMEDIA_FRAME_TYPE_AUDIO;
                 int requiredBytes = FRAME_BYTES;
@@ -165,7 +165,7 @@ public class MediaPortManager : IDisposable
 
         public override void onFrameReceived(MediaFrame frame)
         {
-             Console.WriteLine("AAAA");
+            
                 _logger?.LogDebug("onFrameReceived on Thread-{ThreadId}", Thread.CurrentThread.ManagedThreadId);
                 if (frame == null || frame.buf == null || frame.size == 0)
                 {

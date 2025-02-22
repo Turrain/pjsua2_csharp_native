@@ -113,16 +113,16 @@ public async Task<IActionResult> UpdateAccountAgent(string accountId, [FromBody]
                         AgentId = Guid.NewGuid().ToString(),
                         LLM = new LLMConfig
                         {
-                            Model = "gpt-3.5-turbo", // Required
+                            Model = "llama3.2:1b", // Required
                             OllamaEndpoint = "http://localhost:11434" // Required
                         },
                         Whisper = new WhisperConfig
                         {
-                            Endpoint = "http://localhost:9000" // Required
+                            Endpoint = "ws://37.151.89.206:8765" // Required
                         },
                         Auralis = new AuralisConfig
                         {
-                            Endpoint = "http://localhost:8000", // Required
+                            Endpoint = "ws://37.151.89.206:8766", // Required
                             ApiKey = "your-api-key-here" // Required
                         }
                     }

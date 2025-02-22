@@ -65,7 +65,7 @@ namespace PjSip.App.Utils
 
                 _endpoint.libInit(epConfig);
                 _endpoint.libStart();
-                _endpoint.audDevManager().setNullDev();
+             //   _endpoint.audDevManager().setNullDev();
                 _isInitialized = true;
             }
         }

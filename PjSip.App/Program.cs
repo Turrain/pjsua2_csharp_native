@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using PjSip.App.Data;
+using PjSip.App.Hubs;
 using PjSip.App.Models;
 using PjSip.App.Services;
 using PjSip.App.Utils;
@@ -49,11 +50,24 @@ ThreadSafeEndpoint.Initialize(tlogger);
 
 
 // Application Services
+
+builder.Services.AddSignalR();
 builder.Services.AddScoped<SipManagerService>();
 builder.Services.AddSingleton<SipManager>();
 builder.Services.AddSingleton<MediaPortManager>();
 builder.Services.AddScoped<AgentConfigService>();
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(builder =>
+    {
+        builder.WithOrigins("http://localhost:5000", "http://localhost:3000", "http://localhost:5173")
+               .AllowAnyHeader()
+               .AllowAnyMethod()
+               .AllowCredentials();
+    });
+});
 var app = builder.Build();
+
 
 // Middleware Pipeline
 if (app.Environment.IsDevelopment())
@@ -67,7 +81,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SipDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    
+
     try
     {
         logger.LogInformation("Applying database migrations...");
@@ -80,10 +94,12 @@ await using (var scope = app.Services.CreateAsyncScope())
         throw;
     }
 }
-
-app.UseHttpsRedirection();
-
+app.UseCors();
 app.UseAuthorization();
+
+
+app.UseRouting();
+app.MapHub<SipHub>("/siphub");
 app.MapControllers();
 
 app.UseStaticFiles(new StaticFileOptions
@@ -130,7 +146,7 @@ app.UseExceptionHandler(exceptionHandlerApp =>
 // {
 //     // Load all SIP account records from your database.
 //     var accountsToRegister = await accountDbContext.SipAccounts.ToListAsync();
-    
+
 //     foreach (var account in accountsToRegister)
 //     {
 //         // Enqueue the RegisterAccountCommand that uses your pjsua2 logic.

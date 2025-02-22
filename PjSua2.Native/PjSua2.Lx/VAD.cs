@@ -83,13 +83,17 @@ namespace PjSua2.Lx
         private readonly ArrayPool<byte> _arrayPool;
         private readonly object _lock = new();
         private bool _isSpeechActive;
+private int _unvoicedFrameCount; // For hysteresis
+        private float _averageRms; // For dynamic thresholding
 
-        private const int PaddingMs = 160;
+        private const int PaddingMs = 500; // Increased from 300ms to 500ms
         private const int FrameDurationMs = 20;
-        private const double SpeechStartRatio = 0.66;
-        private const double SpeechEndRatio = 0.2;
-        private const int MaxVoiceBufferSize = 1000;
-          private const float NoiseThreshold = 500.0f;
+        private const double SpeechStartRatio = 0.7; // Slightly increased for robustness
+        private const double SpeechEndRatio = 0.15; // Lowered to delay segment end
+        private const int MinSpeechFrames = 10; // Minimum 200ms of speech before ending
+        private const int MinUnvoicedFrames = 15; // Require 300ms of silence to end speech
+        private const int MaxVoiceBufferSize = 2000; // Increased buffer size
+        private const float NoiseThreshold = 500.0f;
         private static readonly int NumPaddingFrames = PaddingMs / FrameDurationMs;
 
         public VoiceActivityDetector(WebRtcVad.VadMode mode = WebRtcVad.VadMode.VeryAggressive)
@@ -99,6 +103,7 @@ namespace PjSua2.Lx
             _ringBuffer = new RingBuffer(NumPaddingFrames);
             _voiceFrames = new List<MediaFrame>(MaxVoiceBufferSize);
             _arrayPool = ArrayPool<byte>.Shared;
+            _averageRms = NoiseThreshold; // Initial estimate
         }
 
         /// <summary>
@@ -119,9 +124,10 @@ namespace PjSua2.Lx
                 // Create a temporary copy of the frame's data for VAD processing.
                 byte[] frameData = frame.buf.ToArray();
                 Span<byte> audioData = frameData;
-                    PreprocessAudio(audioData);
+                float rms = ComputeRms(audioData);
+                    PreprocessAudio(audioData, rms);
                 bool isVoiced = _vad.Process(VadSampleRate.Rate8KHz, audioData.ToArray()) == 1;
-
+_averageRms = 0.9f * _averageRms + 0.1f * rms;
                 if (!_isSpeechActive)
                 {
                     HandlePotentialSpeechStart(frame, isVoiced);
@@ -210,11 +216,15 @@ namespace PjSua2.Lx
             return true;
         }
 
-        private void HandleSilentFrame(MediaFrame frame)
+    private void HandleSilentFrame(MediaFrame frame)
         {
             if (_isSpeechActive)
             {
-                EndSpeechSegment();
+                _unvoicedFrameCount++;
+                if (_unvoicedFrameCount >= MinUnvoicedFrames && _voiceFrames.Count >= MinSpeechFrames)
+                    EndSpeechSegment();
+                else if (_voiceFrames.Count < MaxVoiceBufferSize)
+                    _voiceFrames.Add(CloneFrame(frame));
             }
             else
             {
@@ -222,35 +232,42 @@ namespace PjSua2.Lx
             }
         }
 
-        private void HandlePotentialSpeechStart(MediaFrame frame, bool isVoiced)
+      private void HandlePotentialSpeechStart(MediaFrame frame, bool isVoiced)
         {
             _ringBuffer.Enqueue(new VadFrame(frame, isVoiced));
 
             if (_ringBuffer.VoiceRatio >= SpeechStartRatio)
             {
                 _isSpeechActive = true;
+                _unvoicedFrameCount = 0;
                 SpeechStarted?.Invoke();
                 _voiceFrames.Clear();
-                // Deep copy frames from the ring buffer.
                 foreach (var vadFrame in _ringBuffer.GetFrames())
-                {
                     _voiceFrames.Add(CloneFrame(vadFrame.Frame));
-                }
             }
         }
 
-        private void HandleActiveSpeech(MediaFrame frame, bool isVoiced)
+       private void HandleActiveSpeech(MediaFrame frame, bool isVoiced)
         {
             if (_voiceFrames.Count < MaxVoiceBufferSize)
                 _voiceFrames.Add(CloneFrame(frame));
 
             _ringBuffer.Enqueue(new VadFrame(frame, isVoiced));
 
-            if (_ringBuffer.VoiceRatio <= SpeechEndRatio)
-                EndSpeechSegment();
+            if (isVoiced)
+            {
+                _unvoicedFrameCount = 0;
+            }
+            else
+            {
+                _unvoicedFrameCount++;
+                if (_unvoicedFrameCount >= MinUnvoicedFrames && _ringBuffer.VoiceRatio <= SpeechEndRatio &&
+                    _voiceFrames.Count >= MinSpeechFrames)
+                    EndSpeechSegment();
+            }
         }
 
-        private void EndSpeechSegment()
+    private void EndSpeechSegment()
         {
             if (_voiceFrames.Count > 0)
             {
@@ -260,6 +277,7 @@ namespace PjSua2.Lx
 
             _isSpeechActive = false;
             _ringBuffer.Clear();
+            _unvoicedFrameCount = 0;
             SilenceDetected?.Invoke();
         }
 
@@ -319,16 +337,12 @@ namespace PjSua2.Lx
                 _arrayPool.Return(rentedBuffer);
             }
         }
-        /// <summary>
-        /// Creates a deep copy of a MediaFrame by copying its valid data.
-        /// </summary>
-        private MediaFrame CloneFrame(MediaFrame frame)
+  
+       private MediaFrame CloneFrame(MediaFrame frame)
         {
             MediaFrame clone = new MediaFrame();
             clone.size = frame.size;
-            // Deep copy the buffer so that the data remains available even if the original is reused.
-            clone.buf = frame.buf;
-            // Copy other properties if needed.
+            clone.buf = frame.buf; // Assuming buf is immutable or copied elsewhere if needed
             return clone;
         }
 
@@ -388,76 +402,53 @@ namespace PjSua2.Lx
                 writer.Write(buffer);
             }
         }
- /// <summary>
-        /// Preprocesses the raw PCM audio data to improve VAD performance.
-        /// If the RMS energy is below a set threshold, the data is zeroed out.
-        /// Otherwise, a high-pass filter is applied to reduce low-frequency noise.
-        /// </summary>
-        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
-        private static void PreprocessAudio(Span<byte> audioData)
+
+     private static void PreprocessAudio(Span<byte> audioData, float rms)
         {
-            float rms = ComputeRms(audioData);
-            if (rms < NoiseThreshold)
+            if (rms < NoiseThreshold * 0.8f) // Slightly lower threshold for noise
             {
-                // Low energy: treat the frame as silence.
                 audioData.Clear();
             }
             else
             {
-                // Apply a high-pass filter to suppress low-frequency background noise.
                 ApplyHighPassFilter(audioData);
+                // Optional: Add band-pass filter for telephony (300 Hz - 3.4 kHz)
             }
         }
 
-        /// <summary>
-        /// Computes the root-mean-square (RMS) value of the PCM audio data.
-        /// </summary>
-        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
-        /// <returns>RMS energy as a float.</returns>
-        private static float ComputeRms(Span<byte> audioData)
+      private static float ComputeRms(Span<byte> audioData)
         {
-            // Interpret the bytes as 16-bit signed samples.
             Span<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
             double sumSquares = 0;
             foreach (short sample in samples)
-            {
                 sumSquares += sample * sample;
-            }
             return (float)Math.Sqrt(sumSquares / samples.Length);
         }
 
-        /// <summary>
-        /// Applies a simple first-order high-pass filter to the PCM data.
-        /// This helps remove low-frequency noise such as hum or background rumbles.
-        /// </summary>
-        /// <param name="audioData">The PCM audio data as a Span&lt;byte&gt;.</param>
-        private static void ApplyHighPassFilter(Span<byte> audioData)
+       
+     private static void ApplyHighPassFilter(Span<byte> audioData)
         {
-            // Interpret the bytes as 16-bit signed samples.
             Span<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
-            if (samples.Length == 0)
-                return;
+            if (samples.Length == 0) return;
 
-            // High-pass filter parameters.
-            const float cutoffFrequency = 80.0f; // in Hz
+            const float cutoffFrequency = 150.0f; // Adjusted for better voice isolation
             const int sampleRate = 8000;
             float RC = 1.0f / (2 * MathF.PI * cutoffFrequency);
             float dt = 1.0f / sampleRate;
             float alpha = RC / (RC + dt);
 
-            // Use a simple first-order high-pass filter:
-            // y[n] = alpha * (y[n-1] + x[n] - x[n-1])
             short previousInput = samples[0];
             float previousOutput = samples[0];
             for (int i = 1; i < samples.Length; i++)
             {
                 short currentInput = samples[i];
                 float currentOutput = alpha * (previousOutput + currentInput - previousInput);
-                samples[i] = (short)currentOutput;
+                samples[i] = (short)Math.Clamp(currentOutput, short.MinValue, short.MaxValue);
                 previousOutput = currentOutput;
                 previousInput = currentInput;
             }
-        }        public void Dispose()
+        }
+              public void Dispose()
         {
             _vad?.Dispose();
             GC.SuppressFinalize(this);

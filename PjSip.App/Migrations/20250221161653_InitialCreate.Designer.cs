@@ -11,7 +11,7 @@ using PjSip.App.Data;
 namespace PjSip.App.Migrations
 {
     [DbContext(typeof(SipDbContext))]
-    [Migration("20250219100621_InitialCreate")]
+    [Migration("20250221161653_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
